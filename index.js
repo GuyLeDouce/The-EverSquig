@@ -9,11 +9,10 @@ const client = new Client({
   ]
 });
 
-const squigCommanders = ['826581856400179210', '1288107772248064044']; // You and Vince
-const keywordCooldowns = new Map(); // Tracks last keyword trigger per user
+const squigCommanders = ['826581856400179210', '1288107772248064044'];
+const keywordCooldowns = new Map();
 const COOLDOWN_SECONDS = 300; // 5 minutes
 
-// Keyword-specific replies
 const keywordResponses = {
   ugly: [
     "Ugly? We prefer the term... misunderstood.",
@@ -57,8 +56,6 @@ const keywordResponses = {
   ]
 };
 
-
-// Random ambient Squig lines
 const ambientMessages = [
   "👁 I've been watching you...",
   "That’s... interesting. The Squigs are taking note.",
@@ -67,12 +64,32 @@ const ambientMessages = [
   "Don't mind me. Just passing through the void."
 ];
 
+const uglyDogStickerId = '1363459791275692222';
+const uglyDogResponses = [
+  "NOPE. Not that sticker again. Why does it always *stare through me?*",
+  "👁 InSquignito is hiding. You brought *the Dog* again?!",
+  "That beast... with the wild eyes... send it BACK.",
+  "You have no idea what that creature did to the Squigs.",
+  "Do you *want* me to short-circuit? Because that sticker will do it.",
+  "*InSquignito curls into a shimmering pile of anxiety.*"
+];
+
 client.once(Events.ClientReady, () => {
   console.log(`👁 SquigWatcher is lurking as ${client.user.tag}`);
 });
 
 client.on(Events.MessageCreate, async message => {
   if (message.author.bot) return;
+
+  // === Ugly Dog Sticker Panic Response ===
+  if (message.stickers && message.stickers.size > 0) {
+    const usedSticker = message.stickers.first();
+    if (usedSticker && usedSticker.id === uglyDogStickerId) {
+      const randomResponse = uglyDogResponses[Math.floor(Math.random() * uglyDogResponses.length)];
+      message.channel.send(randomResponse);
+      return;
+    }
+  }
 
   const content = message.content.toLowerCase();
 
@@ -104,7 +121,7 @@ client.on(Events.MessageCreate, async message => {
     if (squigCommanders.includes(message.author.id)) {
       const squigMessage = message.content.slice(10).trim();
       if (squigMessage.length > 0) {
-        await message.delete(); // Keep it sneaky
+        await message.delete();
         message.channel.send(squigMessage);
       }
     } else {
@@ -114,4 +131,3 @@ client.on(Events.MessageCreate, async message => {
 });
 
 client.login(process.env.SQUIG_TOKEN);
-
