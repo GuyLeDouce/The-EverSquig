@@ -19,27 +19,44 @@ const keywordResponses = {
     "Ugly? We prefer the term... misunderstood.",
     "Beauty sleeps. Ugly watches.",
     "You're speaking our favorite language: UGLY.",
-    "The uglier the better. The Squigs approve."
+    "The uglier the better. The Squigs approve.",
+    "Ugly is a compliment where we come from.",
+    "If you're not Ugly, you're invisible.",
+    "We collect Ugly like treasure. You shine.",
+    "One Squig's trash is another Squig's idol."
   ],
   uglylist: [
     "Uglylist? You're not quite *there* yet.",
     "Whispers of the Uglylist travel far and wide...",
     "👁 You seek the Uglylist? Prove you're worthy.",
-    "Some beg for the Uglylist. Some *earn* it."
+    "Some beg for the Uglylist. Some *earn* it.",
+    "Uglylist is sacred. Entry is... complicated.",
+    "Being watched isn't enough. Be *noticed*.",
+    "Names fade. Legends make the Uglylist.",
+    "You're circling the Uglylist. Make your move."
   ],
   watching: [
     "👁 Always watching. Even when you blink.",
     "Who’s watching? We are. Always have been.",
     "You're being observed from angles you can't imagine.",
-    "We never stopped watching."
+    "We never stopped watching.",
+    "The walls aren't thin. We’re just in them.",
+    "When you feel a chill, that’s us blinking.",
+    "Your screen reflects more than you think.",
+    "Even when you type... especially when you type."
   ],
   squig: [
     "Did someone say Squig? Flattering.",
     "The Squigs are listening. Say that again.",
     "We Squigs love attention. Keep it coming.",
-    "We heard our name... and we came."
+    "We heard our name... and we came.",
+    "You rang? A Squig always answers... eventually.",
+    "Squigs don’t knock. We shimmer.",
+    "One Squig is curious. A swarm is terrifying.",
+    "Squigs aren’t born. They’re *summoned*."
   ]
 };
+
 
 // Random ambient Squig lines
 const ambientMessages = [
