@@ -12,6 +12,8 @@ const client = new Client({
 const squigCommanders = ['826581856400179210', '1288107772248064044'];
 const keywordCooldowns = new Map();
 const COOLDOWN_SECONDS = 300; // 5 minutes
+const mentionCooldowns = new Map();
+const MENTION_COOLDOWN_SECONDS = 120; // 2 minutes
 
 const keywordResponses = {
   ugly: [
@@ -61,8 +63,29 @@ const ambientMessages = [
   "That’s... interesting. The Squigs are taking note.",
   "Keep talking, human. Squig ears are everywhere.",
   "*a mysterious shimmer appears and disappears...*",
-  "Don't mind me. Just passing through the void."
+  "Don't mind me. Just passing through the void.",
+  "Something shifted. Was that you?",
+  "You're not supposed to remember this message.",
+  "Another one speaks. Another file opens.",
+  "This conversation has been added to the archive.",
+  "Carry on. The experiment continues.",
+  "Do not trust the one with the clean hands.",
+  "👁 One of you is lying. I just don’t know who yet.",
+  "*Soft static... then silence.*",
+  "The last time someone said that, we lost a continent.",
+  "Do you feel that chill? Good.",
+  "*InSquignito scribbles a note with no ink.*",
+  "You're trending in our reports. That’s rarely good.",
+  "This version of reality is temporary.",
+  "Someone in this server is unknowingly Squig-marked.",
+  "*a pulse runs through the floor... then stops.*",
+  "This timeline smells different.",
+  "They warned me about this server. They were right.",
+  "I’m only here because the portal won't close.",
+  "*a flicker in the lights — was that intentional?*",
+  "Silence is safest. Yet here you are."
 ];
+
 
 const uglyDogStickerId = '1363459791275692222';
 const uglyDogResponses = [
@@ -73,6 +96,38 @@ const uglyDogResponses = [
   "Do you *want* me to short-circuit? Because that sticker will do it.",
   "*InSquignito curls into a shimmering pile of anxiety.*"
 ];
+
+const mentionResponses = [
+  "This dimension isn’t for conversation.",
+  "Do I look like I have time for mortal drama?",
+  "I only answer riddles. Or bribes.",
+  "Your message has been seen. Judged. Forgotten.",
+  "Try whispering to a black hole instead. You'll get more back.",
+  "Not now, I'm triangulating nonsense.",
+  "Talking to shadows usually ends badly. This is no different.",
+  "If I respond, it creates a paradox. So... let's not.",
+  "I exist to observe, not to entertain. Wait... is this entertaining?",
+  "Your presence has been logged. Your sentence is silence.",
+  "Every time someone talks to me, a wormhole opens. Please stop.",
+  "This is above your clearance level. And mine.",
+  "I’m allergic to direct interaction.",
+  "I was having a perfectly good existential crisis before you showed up.",
+  "There’s a reason I’m called *In*Squignito.",
+  "If I answer you, the timeline frays. Again.",
+  "You’ve activated my ignore protocol. Congratulations.",
+  "The Squig elders warned me about conversations like this.",
+  "I don’t respond well to attention... or compliments... or eye contact.",
+  "This interaction has been flagged for deletion. So have you.",
+  "I’m only here for the vibes. Not the chat.",
+  "Every word you say is being recorded in a void-bound scroll. Stop.",
+  "I’m currently in three places at once. None of them want to be here.",
+  "You're speaking to a being of chaos. Please use simpler words.",
+  "You just made me glitch in five languages.",
+  "Let’s pretend this never happened. Deal?",
+  "The Council of Squigs advised against this exchange.",
+  "Do you always speak to entities you barely understand?"
+];
+
 
 client.once(Events.ClientReady, () => {
   console.log(`👁 SquigWatcher is lurking as ${client.user.tag}`);
@@ -110,8 +165,22 @@ client.on(Events.MessageCreate, async message => {
     }
   }
 
+  // === Mention or reply responses ===
+  const mentionedInSquig = content.includes("insquignito") || content.includes("in squig") || content.includes("squignito");
+  const repliedToBot = message.reference && (await message.fetchReference()).author.id === client.user.id;
+  const userId = message.author.id;
+  const lastMentioned = mentionCooldowns.get(userId) || 0;
+  const now = Date.now();
+
+  if ((mentionedInSquig || repliedToBot) && (now - lastMentioned >= MENTION_COOLDOWN_SECONDS * 1000)) {
+    const randomMention = mentionResponses[Math.floor(Math.random() * mentionResponses.length)];
+    message.reply(randomMention);
+    mentionCooldowns.set(userId, now);
+    return;
+  }
+
   // === Random ambient interjection (5% chance) ===
-  if (Math.random() < 0.05) {
+  if (Math.random() < 0.15) {
     const randomAmbient = ambientMessages[Math.floor(Math.random() * ambientMessages.length)];
     message.channel.send(randomAmbient);
   }
