@@ -1,5 +1,5 @@
 require('dotenv').config();
-const { Client, GatewayIntentBits, Events } = require('discord.js');
+const { Client, GatewayIntentBits, Events, SlashCommandBuilder, Collection } = require('discord.js');
 
 const client = new Client({
   intents: [
@@ -8,6 +8,8 @@ const client = new Client({
     GatewayIntentBits.MessageContent
   ]
 });
+
+client.commands = new Collection();
 
 const squigCommanders = ['826581856400179210', '1288107772248064044'];
 const keywordCooldowns = new Map();
@@ -86,7 +88,6 @@ const ambientMessages = [
   "Silence is safest. Yet here you are."
 ];
 
-
 const uglyDogStickerId = '1363459791275692222';
 const uglyDogResponses = [
   "NOPE. Not that sticker again. Why does it always *stare through me?*",
@@ -128,15 +129,20 @@ const mentionResponses = [
   "Do you always speak to entities you barely understand?"
 ];
 
-
-client.once(Events.ClientReady, () => {
+client.once(Events.ClientReady, async () => {
   console.log(`👁 SquigWatcher is lurking as ${client.user.tag}`);
+
+  const data = new SlashCommandBuilder()
+    .setName('squigsay')
+    .setDescription('Speak through the Squig')
+    .addStringOption(option => option.setName('message').setDescription('What should Squig say?').setRequired(true));
+
+  await client.application.commands.set([data]);
 });
 
 client.on(Events.MessageCreate, async message => {
   if (message.author.bot) return;
 
-  // === Ugly Dog Sticker Panic Response ===
   if (message.stickers && message.stickers.size > 0) {
     const usedSticker = message.stickers.first();
     if (usedSticker && usedSticker.id === uglyDogStickerId) {
@@ -148,24 +154,24 @@ client.on(Events.MessageCreate, async message => {
 
   const content = message.content.toLowerCase();
 
-  // === Keyword-specific response with cooldown ===
-  for (const keyword in keywordResponses) {
-    if (content.includes(keyword)) {
-      const userId = message.author.id;
-      const lastUsed = keywordCooldowns.get(userId) || 0;
-      const now = Date.now();
+  if (!message.content.startsWith('!squigsay')) {
+    for (const keyword in keywordResponses) {
+      if (content.includes(keyword)) {
+        const userId = message.author.id;
+        const lastUsed = keywordCooldowns.get(userId) || 0;
+        const now = Date.now();
 
-      if (now - lastUsed >= COOLDOWN_SECONDS * 1000) {
-        const responses = keywordResponses[keyword];
-        const randomResponse = responses[Math.floor(Math.random() * responses.length)];
-        message.reply(randomResponse);
-        keywordCooldowns.set(userId, now);
+        if (now - lastUsed >= COOLDOWN_SECONDS * 1000) {
+          const responses = keywordResponses[keyword];
+          const randomResponse = responses[Math.floor(Math.random() * responses.length)];
+          message.reply(randomResponse);
+          keywordCooldowns.set(userId, now);
+        }
+        break;
       }
-      break;
     }
   }
 
-  // === Mention or reply responses ===
   const mentionedInSquig = content.includes("insquignito") || content.includes("in squig") || content.includes("squignito");
   const repliedToBot = message.reference && (await message.fetchReference()).author.id === client.user.id;
   const userId = message.author.id;
@@ -179,23 +185,23 @@ client.on(Events.MessageCreate, async message => {
     return;
   }
 
-  // === Random ambient interjection (5% chance) ===
-  if (Math.random() < 0.15) {
+  if (Math.random() < 0.05) {
     const randomAmbient = ambientMessages[Math.floor(Math.random() * ambientMessages.length)];
     message.channel.send(randomAmbient);
   }
+});
 
-  // === Manual Squig override command ===
-  if (message.content.startsWith('!squigsay')) {
-    if (squigCommanders.includes(message.author.id)) {
-      const squigMessage = message.content.slice(10).trim();
-      if (squigMessage.length > 0) {
-        await message.delete();
-        message.channel.send(squigMessage);
-      }
-    } else {
-      message.reply("You’re not Squig-worthy.");
+client.on(Events.InteractionCreate, async interaction => {
+  if (!interaction.isChatInputCommand()) return;
+  if (interaction.commandName === 'squigsay') {
+    if (!squigCommanders.includes(interaction.user.id)) {
+      await interaction.reply({ content: "You’re not Squig-worthy.", ephemeral: true });
+      return;
     }
+
+    const message = interaction.options.getString('message');
+    await interaction.reply({ content: '👁', ephemeral: true });
+    await interaction.channel.send(message);
   }
 });
 
