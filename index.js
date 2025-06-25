@@ -138,7 +138,13 @@ client.once(Events.ClientReady, async () => {
     .addStringOption(option => option.setName('message').setDescription('What should Squig say?').setRequired(true))
     .addAttachmentOption(option => option.setName('image').setDescription('Optional image to include'));
 
-  await client.application.commands.set([data]);
+  // Global command (slow to propagate)
+await client.application.commands.set([data]);
+
+// Instant for dev/test servers
+const devGuild = client.guilds.cache.get('1290584204689801267');
+if (devGuild) await devGuild.commands.set([data]);
+
 });
 
 client.on(Events.MessageCreate, async message => {
