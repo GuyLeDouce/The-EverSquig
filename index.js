@@ -135,7 +135,8 @@ client.once(Events.ClientReady, async () => {
   const data = new SlashCommandBuilder()
     .setName('squigsay')
     .setDescription('Speak through the Squig')
-    .addStringOption(option => option.setName('message').setDescription('What should Squig say?').setRequired(true));
+    .addStringOption(option => option.setName('message').setDescription('What should Squig say?').setRequired(true))
+    .addAttachmentOption(option => option.setName('image').setDescription('Optional image to include'));
 
   await client.application.commands.set([data]);
 });
@@ -200,8 +201,15 @@ client.on(Events.InteractionCreate, async interaction => {
     }
 
     const message = interaction.options.getString('message');
+    const image = interaction.options.getAttachment('image');
+
     await interaction.reply({ content: '👁', ephemeral: true });
-    await interaction.channel.send(message);
+
+    if (image) {
+      await interaction.channel.send({ content: message, files: [image.url] });
+    } else {
+      await interaction.channel.send({ content: message });
+    }
   }
 });
 
