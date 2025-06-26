@@ -48,17 +48,6 @@ const keywordResponses = {
     "Your screen reflects more than you think.",
     "Even when you type... especially when you type."
   ],
-  squig: [
-    "Did someone say Squig? Flattering.",
-    "The Squigs are listening. Say that again.",
-    "We Squigs love attention. Keep it coming.",
-    "We heard our name... and we came.",
-    "You rang? A Squig always answers... eventually.",
-    "Squigs don’t knock. We shimmer.",
-    "One Squig is curious. A swarm is terrifying.",
-    "Squigs aren’t born. They’re *summoned*."
-  ]
-};
 alien: [
   "Alien?! Please. We’re native to everywhere.",
   "Call us aliens one more time. Just once.",
@@ -75,7 +64,19 @@ alien: [
   "Insult logged. Cosmic judgment pending.",
   "That term is outdated and offensive to interdimensional organisms.",
   "We’ve had enough of the green stereotypes."
-]
+],
+  squig: [
+    "Did someone say Squig? Flattering.",
+    "The Squigs are listening. Say that again.",
+    "We Squigs love attention. Keep it coming.",
+    "We heard our name... and we came.",
+    "You rang? A Squig always answers... eventually.",
+    "Squigs don’t knock. We shimmer.",
+    "One Squig is curious. A swarm is terrifying.",
+    "Squigs aren’t born. They’re *summoned*."
+  ]
+};
+
 
 const ambientMessages = [
   "👁 I've been watching you...",
