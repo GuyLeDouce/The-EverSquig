@@ -59,6 +59,23 @@ const keywordResponses = {
     "Squigs aren’t born. They’re *summoned*."
   ]
 };
+alien: [
+  "Alien?! Please. We’re native to everywhere.",
+  "Call us aliens one more time. Just once.",
+  "We don’t abduct. We *observe*. There’s a difference.",
+  "We heard that. We *always* hear that.",
+  "That word offends our molecules.",
+  "Your planet has worse things than us. Trust.",
+  "That's rich coming from a species that thinks socks belong in pairs.",
+  "We were here before your pyramids had corners.",
+  "Do we look like we need flying saucers?",
+  "If being poorly understood makes us aliens, you should look in a mirror.",
+  "We blink sideways and you panic. Typical.",
+  "We have names older than your language. 'Alien' isn’t one of them.",
+  "Insult logged. Cosmic judgment pending.",
+  "That term is outdated and offensive to interdimensional organisms.",
+  "We’ve had enough of the green stereotypes."
+]
 
 const ambientMessages = [
   "👁 I've been watching you...",
