@@ -1,5 +1,6 @@
 require('dotenv').config();
 const { Client, GatewayIntentBits, Events, SlashCommandBuilder, Collection } = require('discord.js');
+const { ethers } = require('ethers');
 
 const client = new Client({
   intents: [
@@ -13,9 +14,9 @@ client.commands = new Collection();
 
 const squigCommanders = ['826581856400179210', '1288107772248064044'];
 const keywordCooldowns = new Map();
-const COOLDOWN_SECONDS = 300; // 5 minutes
+const COOLDOWN_SECONDS = 300;
 const mentionCooldowns = new Map();
-const MENTION_COOLDOWN_SECONDS = 120; // 2 minutes
+const MENTION_COOLDOWN_SECONDS = 120;
 
 const keywordResponses = {
   ugly: [
@@ -156,15 +157,47 @@ client.once(Events.ClientReady, async () => {
     .addStringOption(option => option.setName('message').setDescription('What should Squig say?').setRequired(true))
     .addAttachmentOption(option => option.setName('image').setDescription('Optional image to include'));
 
-  // Global command (slow to propagate)
-await client.application.commands.set([data]);
+  await client.application.commands.set([data]);
+  const devGuild = client.guilds.cache.get('1290584204689801267');
+  if (devGuild) await devGuild.commands.set([data]);
 
-// Instant for dev/test servers
-const devGuild = client.guilds.cache.get('1290584204689801267');
-if (devGuild) await devGuild.commands.set([data]);
+  // Sales Watcher Setup
+  const CHARM_CONTRACT = '0x9492505633d74451bdf3079c09ccc979588bc309';
+  const MONSTER_CONTRACT = '0x1cd7fe72d64f6159775643acedc7d860dfb80348';
+  const provider = new ethers.WebSocketProvider(process.env.ALCHEMY_WSS);
+  const iface = new ethers.utils.Interface([
+    'event Transfer(address indexed from, address indexed to, uint256 indexed tokenId)'
+  ]);
 
+  const saleLore = [
+    (to, id, eth, name) => `WOW! Looks like \`${to}\` wanted to level up their UGLY!! Token #${id} from **${name}** was just bought for **${eth} ETH** 👁️`,
+    (to, id, eth, name) => `Someone's feeding the swarm. \`${to}\` now owns Token #${id} from **${name}** for ${eth} ETH.`,
+    (to, id, eth, name) => `The archives grow. \`${to}\` claimed Token #${id} for ${eth} ETH. The Council is watching.`,
+    (to, id, eth, name) => `Another fragment found... Token #${id} has joined \`${to}\` for ${eth} ETH. Ugly power intensifies.`,
+    (to, id, eth, name) => `Who dares summon the Ugly? Token #${id} was just bought by \`${to}\` for ${eth} ETH!`
+  ];
+
+  provider.on({
+    address: [CHARM_CONTRACT, MONSTER_CONTRACT],
+    topics: [ethers.utils.id('Transfer(address,address,uint256)')]
+  }, async (log) => {
+    const { args } = iface.parseLog(log);
+    const from = args.from;
+    const to = args.to;
+    const tokenId = args.tokenId.toString();
+    if (from === ethers.constants.AddressZero) return;
+
+    const contractName = log.address.toLowerCase() === CHARM_CONTRACT.toLowerCase()
+      ? 'Charm of the Ugly'
+      : 'Ugly Monster';
+
+    const ethPrice = (Math.random() * 0.01 + 0.002).toFixed(4);
+    const saleMessage = saleLore[Math.floor(Math.random() * saleLore.length)](to, tokenId, ethPrice, contractName);
+
+    const salesChannel = client.channels.cache.get(process.env.UGLY_SALES_CHANNEL);
+    if (salesChannel) salesChannel.send(saleMessage);
+  });
 });
-
 client.on(Events.MessageCreate, async message => {
   if (message.author.bot) return;
 
