@@ -178,27 +178,37 @@ const iface = new Interface([
     (to, id, eth, name) => `Who dares summon the Ugly? Token #${id} was just bought by \`${to}\` for ${eth} ETH!`
   ];
 
-  provider.on({
+provider.on(
+  {
     address: [CHARM_CONTRACT, MONSTER_CONTRACT],
-    topics: [id('Transfer(address,address,uint256)')
-]
-  }, async (log) => {
-    const { args } = iface.parseLog(log);
-    const from = args.from;
-    const to = args.to;
-    const tokenId = args.tokenId.toString();
+    topics: [id('Transfer(address,address,uint256)')],
+  },
+  async (log) => {
+    const parsed = iface.parseLog(log);
+    const from = parsed.args.from;
+    const to = parsed.args.to;
+    const tokenId = parsed.args.tokenId.toString();
+
     if (from === ZeroAddress) return;
 
-    const contractName = log.address.toLowerCase() === CHARM_CONTRACT.toLowerCase()
-      ? 'Charm of the Ugly'
-      : 'Ugly Monster';
+    const contractName =
+      log.address.toLowerCase() === CHARM_CONTRACT.toLowerCase()
+        ? 'Charm of the Ugly'
+        : 'Ugly Monster';
 
     const ethPrice = (Math.random() * 0.01 + 0.002).toFixed(4);
-    const saleMessage = saleLore[Math.floor(Math.random() * saleLore.length)](to, tokenId, ethPrice, contractName);
+    const saleMessage = saleLore[Math.floor(Math.random() * saleLore.length)](
+      to,
+      tokenId,
+      ethPrice,
+      contractName
+    );
 
     const salesChannel = client.channels.cache.get(process.env.UGLY_SALES_CHANNEL);
     if (salesChannel) salesChannel.send(saleMessage);
-  });
+  }
+);
+
 });
 client.on(Events.MessageCreate, async message => {
   if (message.author.bot) return;
