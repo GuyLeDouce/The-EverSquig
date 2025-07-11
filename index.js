@@ -165,7 +165,8 @@ client.once(Events.ClientReady, async () => {
   const CHARM_CONTRACT = '0x9492505633d74451bdf3079c09ccc979588bc309';
   const MONSTER_CONTRACT = '0x1cd7fe72d64f6159775643acedc7d860dfb80348';
   const provider = new ethers.WebSocketProvider(process.env.ALCHEMY_WSS);
-  const iface = new ethers.utils.Interface([
+  const { Interface, id, ZeroAddress } = ethers;
+const iface = new Interface([
     'event Transfer(address indexed from, address indexed to, uint256 indexed tokenId)'
   ]);
 
@@ -179,13 +180,14 @@ client.once(Events.ClientReady, async () => {
 
   provider.on({
     address: [CHARM_CONTRACT, MONSTER_CONTRACT],
-    topics: [ethers.utils.id('Transfer(address,address,uint256)')]
+    topics: [id('Transfer(address,address,uint256)')
+]
   }, async (log) => {
     const { args } = iface.parseLog(log);
     const from = args.from;
     const to = args.to;
     const tokenId = args.tokenId.toString();
-    if (from === ethers.constants.AddressZero) return;
+    if (from === ZeroAddress) return;
 
     const contractName = log.address.toLowerCase() === CHARM_CONTRACT.toLowerCase()
       ? 'Charm of the Ugly'
