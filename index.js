@@ -224,23 +224,31 @@ client.on(Events.MessageCreate, async message => {
 
   const content = message.content.toLowerCase();
 
-  if (!message.content.startsWith('!squigsay')) {
-    for (const keyword in keywordResponses) {
-      if (content.includes(keyword)) {
-        const userId = message.author.id;
-        const lastUsed = keywordCooldowns.get(userId) || 0;
-        const now = Date.now();
+if (!message.content.startsWith('!squigsay')) {
+  for (const keyword in keywordResponses) {
+    if (content.includes(keyword)) {
+      console.log(`🔍 Keyword "${keyword}" detected in message: "${message.content}" from ${message.author.tag}`);
 
-        if (now - lastUsed >= COOLDOWN_SECONDS * 1000) {
-          const responses = keywordResponses[keyword];
-          const randomResponse = responses[Math.floor(Math.random() * responses.length)];
-          message.reply(randomResponse);
-          keywordCooldowns.set(userId, now);
-        }
-        break;
+      const userId = message.author.id;
+      const lastUsed = keywordCooldowns.get(userId) || 0;
+      const now = Date.now();
+
+      // ⚠️ Toggle this to true while testing to bypass cooldown
+      const ignoreCooldown = false;
+
+      if (ignoreCooldown || now - lastUsed >= COOLDOWN_SECONDS * 1000) {
+        const responses = keywordResponses[keyword];
+        const randomResponse = responses[Math.floor(Math.random() * responses.length)];
+        message.reply(randomResponse);
+        keywordCooldowns.set(userId, now);
+      } else {
+        console.log(`⏳ Cooldown active for ${message.author.tag} (${Math.round((COOLDOWN_SECONDS - (now - lastUsed) / 1000))}s remaining)`);
       }
+
+      break;
     }
   }
+}
 
   const mentionedInSquig = content.includes("insquignito") || content.includes("in squig") || content.includes("squignito");
   const repliedToBot = message.reference && (await message.fetchReference()).author.id === client.user.id;
