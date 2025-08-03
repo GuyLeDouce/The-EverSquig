@@ -253,7 +253,7 @@ provider.on(
 
       const embeds = tokenIds.map(tokenId => ({
         title: `🌀 Squig #${tokenId}`,
-        image: { url: `https://metadata.squigs.art/squigs/${tokenId}.png` },
+        image: { url: `https://assets.bueno.art/images/a49527dc-149c-4cbc-9038-d4b0d1dbf0b2/default/${tokenId}` },
         color: 0xaa00ff
       }));
 
