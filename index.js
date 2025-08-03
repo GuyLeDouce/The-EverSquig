@@ -167,6 +167,8 @@ const squigsInterface = new Interface([
   'event Transfer(address indexed from, address indexed to, uint256 indexed tokenId)'
 ]);
 
+const mintCache = new Map();
+
 provider.on(
   {
     address: SQUIGS_CONTRACT,
@@ -178,43 +180,58 @@ provider.on(
     const to = parsed.args.to;
     const tokenId = parsed.args.tokenId.toString();
 
-    // Only respond to actual mints (from 0x0)
     if (from !== ZeroAddress) return;
 
-    const classicComments = [
-      "Another Squig crawls from the void...",
-      "👁 A fresh Squig joins the Uglyverse.",
-      "The swarm grows. One more... interesting face.",
-      "Who let this one out?!",
-      "✨ That's... definitely a Squig.",
-      "Born weird. Born watched. Welcome.",
-      "Do not pet the new one. Trust me.",
-      "It blinked first. That’s rare.",
-      "Squig detected. Hide your mirrors.",
-      "🎉 Another one?! The council blinks in approval.",
-      "Squigs don’t walk. They *arrive*.",
-      "I don’t know where it came from, but it’s Ugly certified."
-    ];
+    const txHash = log.transactionHash;
+    const revealChannel = client.channels.cache.get(process.env.SQUIG_REVEAL_CHANNEL);
+    if (!revealChannel) return;
 
-    const comment = classicComments[Math.floor(Math.random() * classicComments.length)];
-    const imageUrl = `https://metadata.squigs.art/squigs/${tokenId}.png`;
-    const openseaUrl = `https://opensea.io/assets/ethereum/${SQUIGS_CONTRACT}/${tokenId}`;
-
-    const revealChannel = client.channels.cache.get(process.env.SQUIG_REVEAL_CHANNEL); // Set this in your .env
-
-    if (revealChannel) {
-      const embed = {
-        title: `🎉 New Squig Minted! #${tokenId}`,
-        description: `${comment}\n[View on OpenSea](${openseaUrl})`,
-        image: { url: imageUrl },
-        color: 0xaa00ff
-      };
-
-      revealChannel.send({ embeds: [embed] });
+    if (!mintCache.has(txHash)) {
+      mintCache.set(txHash, []);
     }
+
+    mintCache.get(txHash).push(tokenId);
+
+    // If this is the first transfer for this tx, allow batching this event group immediately
+    // Instead of using a wait timer, we'll use a short async defer so any other events are caught instantly
+    process.nextTick(async () => {
+      const tokenIds = mintCache.get(txHash);
+      if (!tokenIds) return;
+
+      mintCache.delete(txHash);
+
+      const classicComments = [
+        "Another Squig crawls from the void...",
+        "👁 A fresh Squig joins the Uglyverse.",
+        "The swarm grows. One more... interesting face.",
+        "Who let this one out?!",
+        "✨ That's... definitely a Squig.",
+        "Born weird. Born watched. Welcome.",
+        "Do not pet the new one. Trust me.",
+        "It blinked first. That’s rare.",
+        "Squig detected. Hide your mirrors.",
+        "🎉 Another one?! The council blinks in approval.",
+        "Squigs don’t walk. They *arrive*.",
+        "I don’t know where it came from, but it’s Ugly certified."
+      ];
+
+      const comment = classicComments[Math.floor(Math.random() * classicComments.length)];
+
+      const embeds = tokenIds.map(tokenId => ({
+        title: `🌀 Squig #${tokenId}`,
+        image: { url: `https://metadata.squigs.art/squigs/${tokenId}.png` },
+        color: 0xaa00ff
+      }));
+
+      const openseaLink = `[View the full Squigs collection on OpenSea](https://opensea.io/collection/squigsnft)`;
+
+      await revealChannel.send({
+        content: `${comment}\n${openseaLink}`,
+        embeds
+      });
+    });
   }
 );
-
 });
 
 
