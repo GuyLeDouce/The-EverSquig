@@ -161,55 +161,63 @@ client.once(Events.ClientReady, async () => {
   const devGuild = client.guilds.cache.get('1290584204689801267');
   if (devGuild) await devGuild.commands.set([data]);
 
-  // Sales Watcher Setup
-  const CHARM_CONTRACT = '0x9492505633d74451bdf3079c09ccc979588bc309';
-  const MONSTER_CONTRACT = '0x1cd7fe72d64f6159775643acedc7d860dfb80348';
-  const provider = new ethers.WebSocketProvider(process.env.ALCHEMY_WSS);
-  const { Interface, id, ZeroAddress } = ethers;
-const iface = new Interface([
-    'event Transfer(address indexed from, address indexed to, uint256 indexed tokenId)'
-  ]);
-
-  const saleLore = [
-    (to, id, eth, name) => `WOW! Looks like \`${to}\` wanted to level up their UGLY!! Token #${id} from **${name}** was just bought for **${eth} ETH** 👁️`,
-    (to, id, eth, name) => `Someone's feeding the swarm. \`${to}\` now owns Token #${id} from **${name}** for ${eth} ETH.`,
-    (to, id, eth, name) => `The archives grow. \`${to}\` claimed Token #${id} for ${eth} ETH. The Council is watching.`,
-    (to, id, eth, name) => `Another fragment found... Token #${id} has joined \`${to}\` for ${eth} ETH. Ugly power intensifies.`,
-    (to, id, eth, name) => `Who dares summon the Ugly? Token #${id} was just bought by \`${to}\` for ${eth} ETH!`
-  ];
+  // === SQUIG MINT WATCHER ===
+const SQUIGS_CONTRACT = '0x9bf567ddf41b425264626d1b8b2c7f7c660b1c42';
+const squigsInterface = new Interface([
+  'event Transfer(address indexed from, address indexed to, uint256 indexed tokenId)'
+]);
 
 provider.on(
   {
-    address: [CHARM_CONTRACT, MONSTER_CONTRACT],
+    address: SQUIGS_CONTRACT,
     topics: [id('Transfer(address,address,uint256)')],
   },
   async (log) => {
-    const parsed = iface.parseLog(log);
+    const parsed = squigsInterface.parseLog(log);
     const from = parsed.args.from;
     const to = parsed.args.to;
     const tokenId = parsed.args.tokenId.toString();
 
-    if (from === ZeroAddress) return;
+    // Only respond to actual mints (from 0x0)
+    if (from !== ZeroAddress) return;
 
-    const contractName =
-      log.address.toLowerCase() === CHARM_CONTRACT.toLowerCase()
-        ? 'Charm of the Ugly'
-        : 'Ugly Monster';
+    const classicComments = [
+      "Another Squig crawls from the void...",
+      "👁 A fresh Squig joins the Uglyverse.",
+      "The swarm grows. One more... interesting face.",
+      "Who let this one out?!",
+      "✨ That's... definitely a Squig.",
+      "Born weird. Born watched. Welcome.",
+      "Do not pet the new one. Trust me.",
+      "It blinked first. That’s rare.",
+      "Squig detected. Hide your mirrors.",
+      "🎉 Another one?! The council blinks in approval.",
+      "Squigs don’t walk. They *arrive*.",
+      "I don’t know where it came from, but it’s Ugly certified."
+    ];
 
-    const ethPrice = (Math.random() * 0.01 + 0.002).toFixed(4);
-    const saleMessage = saleLore[Math.floor(Math.random() * saleLore.length)](
-      to,
-      tokenId,
-      ethPrice,
-      contractName
-    );
+    const comment = classicComments[Math.floor(Math.random() * classicComments.length)];
+    const imageUrl = `https://metadata.squigs.art/squigs/${tokenId}.png`;
+    const openseaUrl = `https://opensea.io/assets/ethereum/${SQUIGS_CONTRACT}/${tokenId}`;
 
-    const salesChannel = client.channels.cache.get(process.env.UGLY_SALES_CHANNEL);
-    if (salesChannel) salesChannel.send(saleMessage);
+    const revealChannel = client.channels.cache.get(process.env.SQUIG_REVEAL_CHANNEL); // Set this in your .env
+
+    if (revealChannel) {
+      const embed = {
+        title: `🎉 New Squig Minted! #${tokenId}`,
+        description: `${comment}\n[View on OpenSea](${openseaUrl})`,
+        image: { url: imageUrl },
+        color: 0xaa00ff
+      };
+
+      revealChannel.send({ embeds: [embed] });
+    }
   }
 );
 
 });
+
+
 client.on(Events.MessageCreate, async message => {
   if (message.author.bot) return;
 
