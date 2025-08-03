@@ -1,6 +1,9 @@
 require('dotenv').config();
 const { Client, GatewayIntentBits, Events, SlashCommandBuilder, Collection } = require('discord.js');
 const { ethers } = require('ethers');
+const { Interface, id, ZeroAddress } = ethers;
+
+const provider = new ethers.WebSocketProvider(process.env.ALCHEMY_WSS);
 
 const client = new Client({
   intents: [
