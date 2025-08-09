@@ -11,11 +11,18 @@ const squigsInterface = new Interface([
 ]);
 
 // simple heartbeat so you know the WSS is alive
+// Heartbeat / visibility (ethers v6-safe)
 provider.on('block', (n) => {
   if (n % 20 === 0) console.log(`🔗 Provider alive. Latest block: ${n}`);
 });
-provider.on('error', (e) => console.error('🔥 WSS error:', e));
-provider.on('close', (c) => console.error('🔌 WSS closed:', c));
+
+provider.on('error', (e) => console.error('🔥 WSS provider error:', e));
+
+// Optional: deeper noise if you want to see internals
+provider.on('debug', (info) => {
+  // comment this out if too chatty
+  // console.log('🪵 provider debug:', info);
+});
 
 const client = new Client({
   intents: [
