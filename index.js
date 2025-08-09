@@ -4,6 +4,18 @@ const { ethers } = require('ethers');
 const { Interface, id, ZeroAddress } = ethers;
 
 const provider = new ethers.WebSocketProvider(process.env.ALCHEMY_WSS);
+// put these near the top with your other consts
+const SQUIGS_CONTRACT = '0x9bf567ddf41b425264626d1b8b2c7f7c660b1c42';
+const squigsInterface = new Interface([
+  'event Transfer(address indexed from, address indexed to, uint256 indexed tokenId)'
+]);
+
+// simple heartbeat so you know the WSS is alive
+provider.on('block', (n) => {
+  if (n % 20 === 0) console.log(`🔗 Provider alive. Latest block: ${n}`);
+});
+provider.on('error', (e) => console.error('🔥 WSS error:', e));
+provider.on('close', (c) => console.error('🔌 WSS closed:', c));
 
 const client = new Client({
   intents: [
@@ -183,56 +195,62 @@ const mentionResponses = [
 ];
 
 client.once(Events.ClientReady, async () => {
-  console.log(`👁 SquigWatcher is lurking as ${client.user.tag}`);
+console.log(`👁 SquigWatcher is lurking as ${client.user.tag}`);
 
-  const data = new SlashCommandBuilder()
-    .setName('squigsay')
-    .setDescription('Speak through the Squig')
-    .addStringOption(option => option.setName('message').setDescription('What should Squig say?').setRequired(true))
-    .addAttachmentOption(option => option.setName('image').setDescription('Optional image to include'));
+// register /squigsay (unchanged)
+const data = new SlashCommandBuilder()
+  .setName('squigsay')
+  .setDescription('Speak through the Squig')
+  .addStringOption(o => o.setName('message').setDescription('What should Squig say?').setRequired(true))
+  .addAttachmentOption(o => o.setName('image').setDescription('Optional image to include'));
 
-  await client.application.commands.set([data]);
-  const devGuild = client.guilds.cache.get('1290584204689801267');
-  if (devGuild) await devGuild.commands.set([data]);
+await client.application.commands.set([data]);
+const devGuild = client.guilds.cache.get('1290584204689801267');
+if (devGuild) await devGuild.commands.set([data]);
 
-  // === SQUIG MINT WATCHER ===
-const SQUIGS_CONTRACT = '0x9bf567ddf41b425264626d1b8b2c7f7c660b1c42';
-const squigsInterface = new Interface([
-  'event Transfer(address indexed from, address indexed to, uint256 indexed tokenId)'
-]);
+// --- channel: fetch once and reuse ---
+const revealChannelId = process.env.SQUIG_REVEAL_CHANNEL;
+const revealChannel = await client.channels.fetch(revealChannelId).catch(() => null);
+if (!revealChannel) {
+  console.error(`❌ Could not fetch SQUIG_REVEAL_CHANNEL (${revealChannelId}). Check the ID & bot permissions.`);
+}
 
-const mintCache = new Map();
+// --- SQUIG MINT WATCHER (robust) ---
+const mintCache = new Map(); // txHash -> { ids:Set<string>, timer:NodeJS.Timeout }
 
-provider.on(
-  {
-    address: SQUIGS_CONTRACT,
-    topics: [id('Transfer(address,address,uint256)')],
-  },
-  async (log) => {
-    const parsed = squigsInterface.parseLog(log);
+const filter = {
+  address: SQUIGS_CONTRACT,
+  topics: [ id('Transfer(address,address,uint256)') ]
+};
+
+console.log('👂 Subscribing to Transfer logs for', SQUIGS_CONTRACT);
+provider.on(filter, async (log) => {
+  try {
+    // ethers v6: pass topics/data
+    const parsed = squigsInterface.parseLog({ topics: log.topics, data: log.data });
     const from = parsed.args.from;
     const to = parsed.args.to;
     const tokenId = parsed.args.tokenId.toString();
 
+    // only react to mints
     if (from !== ZeroAddress) return;
 
     const txHash = log.transactionHash;
-    const revealChannel = client.channels.cache.get(process.env.SQUIG_REVEAL_CHANNEL);
-    if (!revealChannel) return;
 
+    // init tx group
     if (!mintCache.has(txHash)) {
-      mintCache.set(txHash, []);
+      mintCache.set(txHash, { ids: new Set(), timer: null });
     }
+    const group = mintCache.get(txHash);
+    group.ids.add(tokenId);
 
-    mintCache.get(txHash).push(tokenId);
-
-    // If this is the first transfer for this tx, allow batching this event group immediately
-    // Instead of using a wait timer, we'll use a short async defer so any other events are caught instantly
-    process.nextTick(async () => {
-      const tokenIds = mintCache.get(txHash);
-      if (!tokenIds) return;
-
+    // batch any same-tx mints for ~200ms
+    if (group.timer) clearTimeout(group.timer);
+    group.timer = setTimeout(async () => {
+      const tokenIds = Array.from(group.ids);
       mintCache.delete(txHash);
+
+      if (!revealChannel) return; // already logged above
 
       const classicComments = [
         "Another Squig crawls from the void...",
@@ -248,24 +266,24 @@ provider.on(
         "Squigs don’t walk. They *arrive*.",
         "I don’t know where it came from, but it’s Ugly certified."
       ];
-
       const comment = classicComments[Math.floor(Math.random() * classicComments.length)];
 
-      const embeds = tokenIds.map(tokenId => ({
-        title: `🌀 Squig #${tokenId}`,
-        image: { url: `https://assets.bueno.art/images/a49527dc-149c-4cbc-9038-d4b0d1dbf0b2/default/${tokenId}` },
+      const embeds = tokenIds.map(id => ({
+        title: `🌀 Squig #${id}`,
+        image: { url: `https://assets.bueno.art/images/a49527dc-149c-4cbc-9038-d4b0d1dbf0b2/default/${id}` },
         color: 0xaa00ff
       }));
 
       const openseaLink = `[View the full Squigs collection on OpenSea](https://opensea.io/collection/squigsnft)`;
 
-      await revealChannel.send({
-        content: `${comment}\n${openseaLink}`,
-        embeds
-      });
-    });
+      console.log(`✅ Mint tx ${txHash} -> tokenIds: ${tokenIds.join(', ')}`);
+      await revealChannel.send({ content: `${comment}\n${openseaLink}`, embeds });
+    }, 200);
+  } catch (err) {
+    console.error('❗ Mint watcher error:', err);
   }
-);
+});
+
 });
 
 
