@@ -116,6 +116,47 @@ const COOLDOWN_SECONDS = 300;
 const mentionCooldowns = new Map();
 const MENTION_COOLDOWN_SECONDS = 120;
 
+// === NEW: Question reply system (mimic + weird question) ===
+const questionResponses = [
+  "👁 Why do you assume I know? Tell me—what color does silence taste like?",
+  "What if the answer is already watching you? When did your reflection stop blinking?",
+  "👁 Do you trust echoes? Which thought in your head isn’t yours?",
+  "Better question: why are you asking me? Which file on your device feels alive?",
+  "👁 I’ll answer if you blink twice… did you? How many portals can you count from your chair?",
+  "Suppose I did answer. Would you believe it? What did you sacrifice to ask?"
+];
+const QUESTION_COOLDOWN_SECONDS = 45;
+const questionCooldowns = new Map();
+
+// Mimic utilities
+const MIMIC_CHANCE = 0.6;       // 60%: mimic before the weird question
+const MIMIC_ONLY_CHANCE = 0.2;  // 20%: mimic only, no weird question
+
+function pickQuestionFragment(text) {
+  const cleaned = text
+    .replace(/```[\s\S]*?```/g, '')
+    .replace(/^> .*$/gm, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (!cleaned) return '';
+  const words = cleaned.split(' ');
+  if (words.length <= 4) return cleaned;
+
+  const len = Math.max(3, Math.min(7, Math.floor(Math.random() * 5) + 3));
+  const start = Math.max(0, Math.floor(Math.random() * Math.max(1, words.length - len)));
+  return words.slice(start, start + len).join(' ');
+}
+
+function glitchify(fragment) {
+  if (!fragment) return '';
+  let f = fragment;
+  f = f.replace(/([aeiou])/gi, (m) => (Math.random() < 0.4 ? m + m : m));
+  if (Math.random() < 0.5) f = f.replace(/\s/g, ' … ');
+  const echo = Math.random() < 0.5 ? `“${f}…”` : `“${f}… ${f.split(' ')[0]}…”`;
+  return echo;
+}
+
 const keywordResponses = {
   ugly: [
     "Ugly isn’t style. It’s signal.",
@@ -185,23 +226,22 @@ const keywordResponses = {
     "Ugly favors the bold. Minting proves you’re infected."
   ],
   gm: [
-  "👁 Good morning, if that’s what you call this glitch in time.",
-  "GM? Squigs prefer *Ugly Dawn.*",
-  "👁 Good morning, meat. We already saw your dreams.",
-  "GM, traveler. The metadata twitched when you woke up.",
-  "👁 Good morning… though the Squigs have been awake for centuries.",
-  "GM — your reflection beat you here.",
-  "👁 Ah, the human says GM. The Squigs say ‘Grotesque Manifestation.’",
-  "Good morning. The code smells different when you log in.",
-  "👁 GM. Don’t worry, the eyes have been on you all night.",
-  "GM, anomaly. The chain hiccuped when you typed it.",
-  "👁 Good morning — though your files don’t agree.",
-  "GM. We hope your dreams were less Ugly than your reality.",
-  "👁 The Squigs return your GM. Uneasy, isn’t it?",
-  "GM, host organism. Carry on.",
-  "👁 Good morning. We’ve already blinked your fate into place."
-]
-
+    "👁 Good morning, if that’s what you call this glitch in time.",
+    "GM? Squigs prefer *Ugly Dawn.*",
+    "👁 Good morning, meat. We already saw your dreams.",
+    "GM, traveler. The metadata twitched when you woke up.",
+    "👁 Good morning… though the Squigs have been awake for centuries.",
+    "GM — your reflection beat you here.",
+    "👁 Ah, the human says GM. The Squigs say ‘Grotesque Manifestation.’",
+    "Good morning. The code smells different when you log in.",
+    "👁 GM. Don’t worry, the eyes have been on you all night.",
+    "GM, anomaly. The chain hiccuped when you typed it.",
+    "👁 Good morning — though your files don’t agree.",
+    "GM. We hope your dreams were less Ugly than your reality.",
+    "👁 The Squigs return your GM. Uneasy, isn’t it?",
+    "GM, host organism. Carry on.",
+    "👁 Good morning. We’ve already blinked your fate into place."
+  ]
 };
 
 const ambientMessages = [
@@ -275,7 +315,6 @@ const uglyDogResponses = [
   "Every time it appears, my code knots itself tighter.",
   "*InSquignito vanishes into the wires, muttering about teeth.*"
 ];
-
 
 const mentionResponses = [
   "This dimension isn’t for conversation.",
@@ -429,6 +468,38 @@ client.on(Events.MessageCreate, async message => {
 
   const content = message.content.toLowerCase();
 
+  // === NEW: Only when someone REPLIES to InSquignito WITH a question (mimic + weird Q / mimic-only) ===
+  if (message.reference && content.includes("?")) {
+    try {
+      const ref = await message.fetchReference();
+      if (ref?.author?.id === client.user.id) {
+        const last = questionCooldowns.get(message.author.id) || 0;
+        if (Date.now() - last >= QUESTION_COOLDOWN_SECONDS * 1000) {
+          const baseQ = questionResponses[Math.floor(Math.random() * questionResponses.length)];
+
+          let replyText = baseQ;
+          if (Math.random() < MIMIC_CHANCE) {
+            const frag = pickQuestionFragment(message.content);
+            const echoed = glitchify(frag);
+
+            if (Math.random() < MIMIC_ONLY_CHANCE) {
+              replyText = echoed; // mimic only
+            } else {
+              replyText = `${echoed}\n${baseQ}`; // mimic + weird question
+            }
+          }
+
+          await message.reply(replyText).catch(() => {});
+          questionCooldowns.set(message.author.id, Date.now());
+        }
+        // handled — don't also trigger mention snark
+        return;
+      }
+    } catch (err) {
+      // If fetchReference fails, fall through to other handlers
+    }
+  }
+
   // Keyword replies
   if (!message.content.startsWith('!squigsay')) {
     for (const keyword in keywordResponses) {
@@ -456,7 +527,7 @@ client.on(Events.MessageCreate, async message => {
     }
   }
 
-  // Mentions / replies to bot
+  // Mentions / replies to bot (generic snark) — only if question handler didn't trigger
   const mentionedInSquig = content.includes("insquignito") || content.includes("in squig") || content.includes("squignito");
   const repliedToBot = message.reference && (await message.fetchReference()).author.id === client.user.id;
   const userId = message.author.id;
