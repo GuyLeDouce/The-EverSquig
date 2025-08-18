@@ -1,5 +1,5 @@
 require('dotenv').config();
-const { Client, GatewayIntentBits, Events, SlashCommandBuilder, Collection } = require('discord.js');
+const { Client, GatewayIntentBits, Events, SlashCommandBuilder, Collection, PermissionFlagsBits } = require('discord.js');
 const { ethers } = require('ethers');
 const { Interface, id, ZeroAddress } = ethers;
 
@@ -14,8 +14,8 @@ const squigsInterface = new Interface([
 const GENERAL_CHANNEL_ID = '1290587398778126418';
 const EYES_EMOJI_ID = '1387394624804618351'; // custom 3-eyes emoji
 
-// 🚨 ping this user on every mint
-const MINT_PING_USER_ID = '1389075735142203534';
+// 🚨 ping this ROLE on every mint (@Ugly Intel)
+const MINT_PING_ROLE_ID = '1389075735142203534';
 
 // === recently announced txs: dedupe realtime vs catch-up ===
 const recentAnnouncedTxs = new Set();
@@ -26,6 +26,37 @@ function rememberTx(txHash) {
     // trim ~1/4 oldest entries
     let n = Math.floor(RECENT_TX_LIMIT / 4);
     for (const h of recentAnnouncedTxs) { recentAnnouncedTxs.delete(h); if (--n <= 0) break; }
+  }
+}
+
+// --- helper: resolve role mention cleanly (avoid @unknown-user) ---
+async function resolveMintMention(revealChannel) {
+  try {
+    const guild = revealChannel?.guild;
+    if (!guild) {
+      // no guild context (e.g., DM) — still format as role mention
+      return { mentionText: `<@&${MINT_PING_ROLE_ID}>`, allowedMentions: { roles: [MINT_PING_ROLE_ID] } };
+    }
+
+    const role =
+      guild.roles.cache.get(MINT_PING_ROLE_ID) ||
+      await guild.roles.fetch(MINT_PING_ROLE_ID).catch(() => null);
+
+    if (!role) {
+      console.warn('⚠️ Ugly Intel role not found in this guild; skipping ping.');
+      return { mentionText: '', allowedMentions: undefined };
+    }
+
+    // If the role isn't mentionable, bot needs MentionEveryone to force ping
+    const canMentionAll = guild.members.me?.permissions.has(PermissionFlagsBits.MentionEveryone);
+    if (!role.mentionable && !canMentionAll) {
+      console.warn('⚠️ @Ugly Intel is not mentionable and bot lacks "Mention Everyone"; the ping may not notify.');
+    }
+
+    return { mentionText: `<@&${MINT_PING_ROLE_ID}>`, allowedMentions: { roles: [MINT_PING_ROLE_ID] } };
+  } catch (e) {
+    console.warn('⚠️ resolveMintMention failed, using role mention format.');
+    return { mentionText: `<@&${MINT_PING_ROLE_ID}>`, allowedMentions: { roles: [MINT_PING_ROLE_ID] } };
   }
 }
 
@@ -76,15 +107,16 @@ async function handleMintLogs(logs, { revealChannel, squigsInterface }) {
     }));
     const openseaLink = `[View the full Squigs collection on OpenSea](https://opensea.io/collection/squigsnft)`;
 
-    // 🔔 include the user mention so they get pinged on each mint
-    const content = `${comment}\n<@${MINT_PING_USER_ID}>\n${openseaLink}`;
+    // 🔔 resolve role ping and build message
+    const { mentionText, allowedMentions } = await resolveMintMention(revealChannel);
+    const mentionLine = mentionText ? `${mentionText}\n` : '';
+    const content = `${comment}\n${mentionLine}${openseaLink}`;
 
     console.log(`✅ Mint tx ${txHash} -> tokenIds: ${tokenIds.join(', ')}`);
-    await revealChannel.send({
-      content,
-      embeds,
-      allowedMentions: { users: [MINT_PING_USER_ID] } // ensure the ping fires
-    })
+    const payload = { content, embeds };
+    if (allowedMentions) payload.allowedMentions = allowedMentions;
+
+    await revealChannel.send(payload)
       .then(() => rememberTx(txHash))
       .catch(err => {
         if (err?.code === 50013) {
