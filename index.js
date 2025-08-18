@@ -9,6 +9,61 @@ const SQUIGS_CONTRACT = '0x9bf567ddf41b425264626d1b8b2c7f7c660b1c42';
 const squigsInterface = new Interface([
   'event Transfer(address indexed from, address indexed to, uint256 indexed tokenId)'
 ]);
+// === helper: parse logs, group mints by tx, and send one message per tx ===
+async function handleMintLogs(logs, { revealChannel, squigsInterface }) {
+  const grouped = new Map(); // txHash -> Set(tokenIds)
+
+  for (const log of logs) {
+    try {
+      const parsed = squigsInterface.parseLog({ topics: log.topics, data: log.data });
+      const from = parsed.args.from;
+      if (from !== ZeroAddress) continue; // only mints
+
+      const tokenId = parsed.args.tokenId.toString();
+      if (!grouped.has(log.transactionHash)) grouped.set(log.transactionHash, new Set());
+      grouped.get(log.transactionHash).add(tokenId);
+    } catch {
+      // ignore non-matching logs
+    }
+  }
+
+  for (const [txHash, ids] of grouped) {
+    const tokenIds = Array.from(ids);
+    if (!tokenIds.length) continue;
+
+    const classicComments = [
+      "Another Squig crawls from the void...",
+      "👁 A fresh Squig joins the Uglyverse.",
+      "The swarm grows. One more... interesting face.",
+      "Who let this one out?!",
+      "✨ That's... definitely a Squig.",
+      "Born weird. Born watched. Welcome.",
+      "Do not pet the new one. Trust me.",
+      "It blinked first. That’s rare.",
+      "Squig detected. Hide your mirrors.",
+      "🎉 Another one?! The council blinks in approval.",
+      "Squigs don’t walk. They *arrive*.",
+      "I don’t know where it came from, but it’s Ugly certified."
+    ];
+    const comment = classicComments[Math.floor(Math.random() * classicComments.length)];
+    const embeds = tokenIds.map(id => ({
+      title: `🌀 Squig #${id}`,
+      image: { url: `https://assets.bueno.art/images/a49527dc-149c-4cbc-9038-d4b0d1dbf0b2/default/${id}` },
+      color: 0xaa00ff
+    }));
+    const openseaLink = `[View the full Squigs collection on OpenSea](https://opensea.io/collection/squigsnft)`;
+
+    console.log(`✅ Mint tx ${txHash} -> tokenIds: ${tokenIds.join(', ')}`);
+    await revealChannel.send({ content: `${comment}\n${openseaLink}`, embeds })
+      .catch(err => {
+        if (err?.code === 50013) {
+          console.log("⚠️ Reveal channel missing perms for send.");
+        } else {
+          console.error("❗ Failed to send mint message:", err);
+        }
+      });
+  }
+}
 
 // simple heartbeat so you know the WSS is alive
 // Heartbeat / visibility (ethers v6-safe)
@@ -222,74 +277,63 @@ if (!revealChannel) {
   console.error(`❌ Could not fetch SQUIG_REVEAL_CHANNEL (${revealChannelId}). Check the ID & bot permissions.`);
 }
 
-// --- SQUIG MINT WATCHER (robust) ---
-const mintCache = new Map(); // txHash -> { ids:Set<string>, timer:NodeJS.Timeout }
-
+// === ROBUST MINT WATCHER (hybrid: realtime + catch-up) ===
 const filter = {
   address: SQUIGS_CONTRACT,
   topics: [ id('Transfer(address,address,uint256)') ]
 };
 
-console.log('👂 Subscribing to Transfer logs for', SQUIGS_CONTRACT);
+// 1) Realtime logs (fast reactions)
 provider.on(filter, async (log) => {
   try {
-    // ethers v6: pass topics/data
-    const parsed = squigsInterface.parseLog({ topics: log.topics, data: log.data });
-    const from = parsed.args.from;
-    const to = parsed.args.to;
-    const tokenId = parsed.args.tokenId.toString();
-
-    // only react to mints
-    if (from !== ZeroAddress) return;
-
-    const txHash = log.transactionHash;
-
-    // init tx group
-    if (!mintCache.has(txHash)) {
-      mintCache.set(txHash, { ids: new Set(), timer: null });
-    }
-    const group = mintCache.get(txHash);
-    group.ids.add(tokenId);
-
-    // batch any same-tx mints for ~200ms
-    if (group.timer) clearTimeout(group.timer);
-    group.timer = setTimeout(async () => {
-      const tokenIds = Array.from(group.ids);
-      mintCache.delete(txHash);
-
-      if (!revealChannel) return; // already logged above
-
-      const classicComments = [
-        "Another Squig crawls from the void...",
-        "👁 A fresh Squig joins the Uglyverse.",
-        "The swarm grows. One more... interesting face.",
-        "Who let this one out?!",
-        "✨ That's... definitely a Squig.",
-        "Born weird. Born watched. Welcome.",
-        "Do not pet the new one. Trust me.",
-        "It blinked first. That’s rare.",
-        "Squig detected. Hide your mirrors.",
-        "🎉 Another one?! The council blinks in approval.",
-        "Squigs don’t walk. They *arrive*.",
-        "I don’t know where it came from, but it’s Ugly certified."
-      ];
-      const comment = classicComments[Math.floor(Math.random() * classicComments.length)];
-
-      const embeds = tokenIds.map(id => ({
-        title: `🌀 Squig #${id}`,
-        image: { url: `https://assets.bueno.art/images/a49527dc-149c-4cbc-9038-d4b0d1dbf0b2/default/${id}` },
-        color: 0xaa00ff
-      }));
-
-      const openseaLink = `[View the full Squigs collection on OpenSea](https://opensea.io/collection/squigsnft)`;
-
-      console.log(`✅ Mint tx ${txHash} -> tokenIds: ${tokenIds.join(', ')}`);
-      await revealChannel.send({ content: `${comment}\n${openseaLink}`, embeds });
-    }, 200);
+    await handleMintLogs([log], { revealChannel, squigsInterface });
   } catch (err) {
-    console.error('❗ Mint watcher error:', err);
+    console.error('❗ Realtime mint handler error:', err);
   }
 });
+
+// 2) Catch-up on every new block (fills any gaps if WSS hiccups)
+let lastProcessedBlock;
+try {
+  lastProcessedBlock = await provider.getBlockNumber();
+} catch (e) {
+  console.error("❗ Could not read initial block number:", e);
+  lastProcessedBlock = undefined;
+}
+
+provider.on('block', async (currentBlock) => {
+  try {
+    // First run just sets baseline
+    if (lastProcessedBlock === undefined) {
+      lastProcessedBlock = currentBlock;
+      return;
+    }
+    if (currentBlock <= lastProcessedBlock) return;
+
+    const fromBlock = lastProcessedBlock + 1;
+    const toBlock   = currentBlock;
+
+    const logs = await provider.getLogs({
+      address: SQUIGS_CONTRACT,
+      topics: [ id('Transfer(address,address,uint256)') ],
+      fromBlock,
+      toBlock
+    });
+
+    if (logs.length) {
+      console.log(`🔎 Catch-up logs ${fromBlock}→${toBlock}: ${logs.length} Transfer(s)`);
+      await handleMintLogs(logs, { revealChannel, squigsInterface });
+    }
+
+    lastProcessedBlock = currentBlock;
+  } catch (err) {
+    console.error('❗ Block catch-up error:', err);
+    // Keep lastProcessedBlock unchanged so we retry next time
+  }
+});
+
+console.log('👂 Subscribed to Transfer logs for', SQUIGS_CONTRACT);
+
 
 });
 
