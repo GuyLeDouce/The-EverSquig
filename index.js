@@ -14,6 +14,9 @@ const squigsInterface = new Interface([
 const GENERAL_CHANNEL_ID = '1290587398778126418';
 const EYES_EMOJI_ID = '1387394624804618351'; // custom 3-eyes emoji
 
+// 🚨 ping this user on every mint
+const MINT_PING_USER_ID = '1389075735142203534';
+
 // === recently announced txs: dedupe realtime vs catch-up ===
 const recentAnnouncedTxs = new Set();
 const RECENT_TX_LIMIT = 1000;
@@ -73,8 +76,15 @@ async function handleMintLogs(logs, { revealChannel, squigsInterface }) {
     }));
     const openseaLink = `[View the full Squigs collection on OpenSea](https://opensea.io/collection/squigsnft)`;
 
+    // 🔔 include the user mention so they get pinged on each mint
+    const content = `${comment}\n<@${MINT_PING_USER_ID}>\n${openseaLink}`;
+
     console.log(`✅ Mint tx ${txHash} -> tokenIds: ${tokenIds.join(', ')}`);
-    await revealChannel.send({ content: `${comment}\n${openseaLink}`, embeds })
+    await revealChannel.send({
+      content,
+      embeds,
+      allowedMentions: { users: [MINT_PING_USER_ID] } // ensure the ping fires
+    })
       .then(() => rememberTx(txHash))
       .catch(err => {
         if (err?.code === 50013) {
