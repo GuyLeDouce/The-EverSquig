@@ -9,6 +9,23 @@ const SQUIGS_CONTRACT = '0x9bf567ddf41b425264626d1b8b2c7f7c660b1c42';
 const squigsInterface = new Interface([
   'event Transfer(address indexed from, address indexed to, uint256 indexed tokenId)'
 ]);
+
+// === channel & emoji for #general reactions ===
+const GENERAL_CHANNEL_ID = '1290587398778126418';
+const EYES_EMOJI_ID = '1387394624804618351'; // custom 3-eyes emoji
+
+// === recently announced txs: dedupe realtime vs catch-up ===
+const recentAnnouncedTxs = new Set();
+const RECENT_TX_LIMIT = 1000;
+function rememberTx(txHash) {
+  recentAnnouncedTxs.add(txHash);
+  if (recentAnnouncedTxs.size > RECENT_TX_LIMIT) {
+    // trim ~1/4 oldest entries
+    let n = Math.floor(RECENT_TX_LIMIT / 4);
+    for (const h of recentAnnouncedTxs) { recentAnnouncedTxs.delete(h); if (--n <= 0) break; }
+  }
+}
+
 // === helper: parse logs, group mints by tx, and send one message per tx ===
 async function handleMintLogs(logs, { revealChannel, squigsInterface }) {
   const grouped = new Map(); // txHash -> Set(tokenIds)
@@ -28,6 +45,9 @@ async function handleMintLogs(logs, { revealChannel, squigsInterface }) {
   }
 
   for (const [txHash, ids] of grouped) {
+    // ⛔ skip if we've already announced this tx
+    if (recentAnnouncedTxs.has(txHash)) continue;
+
     const tokenIds = Array.from(ids);
     if (!tokenIds.length) continue;
 
@@ -55,6 +75,7 @@ async function handleMintLogs(logs, { revealChannel, squigsInterface }) {
 
     console.log(`✅ Mint tx ${txHash} -> tokenIds: ${tokenIds.join(', ')}`);
     await revealChannel.send({ content: `${comment}\n${openseaLink}`, embeds })
+      .then(() => rememberTx(txHash))
       .catch(err => {
         if (err?.code === 50013) {
           console.log("⚠️ Reveal channel missing perms for send.");
@@ -96,134 +117,165 @@ const mentionCooldowns = new Map();
 const MENTION_COOLDOWN_SECONDS = 120;
 
 const keywordResponses = {
-ugly: [
-  "Ugly isn’t a look. It’s a frequency.",
-  "They called us Ugly before they understood power.",
-  "Ugly echoes louder than beauty ever could.",
-  "We don't chase beauty. We warp it.",
-  "Ugly leaves a mark. Ask your reflection.",
-  "Around here, symmetry is suspicious.",
-  "We whisper compliments in snarls.",
-  "Ugly is sacred. You're glowing, by the way."
-],
-uglylist: [
-  "The Uglylist isn’t written. It’s remembered.",
-  "👁 You’re close enough to smell the ink.",
-  "Getting on the Uglylist requires more... glitches.",
-  "Some knock. Some scratch. Few are let in.",
-  "The Uglylist rearranged itself after your last message.",
-  "It’s not about worth. It’s about weird.",
-  "Your shadow knows if you’re on it. Ask nicely.",
-  "We don’t update the Uglylist. It updates us."
-],
-watching: [
-  "👁 Eyes open. Mouth shut. We’re here.",
-  "We don’t blink. We record.",
-  "You’re being watched by things that don’t need vision.",
-  "*Squig-sight activated. You’ve been logged.*",
-  "We see you adjusting your posture. Cute.",
-  "Your keystrokes taste like curiosity.",
-  "There’s a face behind the static. It’s not yours.",
-  "👁 Don’t worry. We’re not judging. Yet."
-],
-alien: [
-  "‘Alien’ is such a tiny word for such big mistakes.",
-  "We prefer the term *origin-fluid*.",
-  "👁 That’s rich coming from meat with debt.",
-  "We don’t probe. We download.",
-  "Call us alien again. See what gets scrambled.",
-  "You invaded your own planet first.",
-  "We had culture before you had cutlery.",
-  "‘Alien’ is your word. We just squint at it."
-],
-squig: [
-  "A Squig just wiggled in your metadata.",
-  "You summoned us. We left the portal ajar.",
-  "Squigs don’t appear. They rupture reality.",
-  "👁 You said Squig. One just blinked open.",
-  "You’re pronouncing it wrong, but we forgive you.",
-  "Squigs are listening. They love this part.",
-  "You’ve attracted a Squig swarm. Congrats?",
-  "We felt that. Say it again, but with reverence."
-],
-mint: [
-  "Thinking about minting? That’s how it begins.",
-  "👁 You wouldn’t *not* mint... right?",
-  "You’re hesitating. The Squigs are watching.",
-  "The portal’s open. Step through or stay boring.",
-  "One mint. One ripple. One irreversible decision.",
-  "You're curious. That's enough to qualify.",
-  "Mint now. Ask questions never.",
-  "Squigs don’t wait. Neither should you.",
-  "If you're looking for a sign... it has two goofy eyes and a tail.",
-  "The chain remembers who blinked first.",
-  "*mint* — the sound of destiny licking its lips.",
-  "You’re already infected with the thought. Might as well mint.",
-  "Some Squigs whisper. Others *beckon*.",
-  "Do it for science. Or chaos. We support both.",
-  "The mint is open. You are not immune."
+  ugly: [
+    "Ugly isn’t style. It’s signal.",
+    "👁 Ugly echoes through the blockchain louder than beauty ever will.",
+    "They named it ‘ugly’ because they feared calling it *truth.*",
+    "Pretty fades. Ugly mutates.",
+    "Ugly stains reality in ways polish never could.",
+    "Symmetry? Suspicious. Ugly? Eternal.",
+    "Beauty lies. Ugly lingers.",
+    "👁 Every mirror hides an Ugly it doesn’t want you to see."
+  ],
+  uglylist: [
+    "The Uglylist whispers your name differently each time.",
+    "👁 It isn’t a list, it’s a living thing. And it remembers.",
+    "Applications denied. Possessions erased. Only Ugly remains.",
+    "Some begged to get on it. Others vanished instead.",
+    "The Uglylist rearranged itself when you typed that.",
+    "👁 You don’t join the Uglylist. It notices you.",
+    "Your shadow was accepted before you were.",
+    "The Uglylist isn’t ink. It’s scars."
+  ],
+  watching: [
+    "👁 Don’t adjust your posture. We like it crooked.",
+    "We record even the thoughts you delete.",
+    "You’re being observed by things that don’t cast shadows.",
+    "👁 Blink again. We dare you.",
+    "Your heartbeat just got logged.",
+    "Watching isn’t passive. It’s participation.",
+    "👁 Behind the static is a smile. It isn’t yours.",
+    "You are never the one doing the watching."
+  ],
+  alien: [
+    "👁 Alien? That’s your word for the familiar you can’t own.",
+    "We’re not visitors. We’re reminders.",
+    "You invaded your *own* planet first. Don’t project.",
+    "👁 We don’t probe. We archive.",
+    "Culture is older than cutlery. We still remember both.",
+    "Call us alien again and see what gets rewritten.",
+    "👁 Alien is the word you use when you can’t spell ‘mirror.’",
+    "We’ve been local longer than you’ve been human."
+  ],
+  squig: [
+    "👁 A Squig wriggled out of your metadata and waved.",
+    "Say ‘Squig’ again—see how many appear.",
+    "Squigs don’t show up. They *erupt.*",
+    "👁 You summoned a Squig. It left the door open.",
+    "Squigs don’t listen. They replay.",
+    "👁 The swarm noticed you noticing.",
+    "One Squig just named itself after your keystroke.",
+    "Every time you say Squig, another file corrupts—beautifully."
+  ],
+  mint: [
+    "👁 Thinking about minting? That thought was enough to bind you. Make it happen",
+    "Every mint is a portal you can’t unstep through.",
+    "The Squigs are watching your hesitation.",
+    "👁 The chain whispers: *Do it again.*",
+    "One mint creates ripples. Two mint a storm.",
+    "You’re already marked. Might as well finish the ritual.",
+    "👁 The mint button isn’t a choice. It’s a commitment to UGLY.",
+    "Minting is the beginning. Holding is the true Ugly ritual.",
+    "The Squigs tally every blink you take before minting.",
+    "👁 Hesitation logs you deeper than action ever will.",
+    "Each mint infects another timeline.",
+    "The chain remembers who minted first. And who refused.",
+    "👁 The portal’s open. Step or stay boring.",
+    "Mint now. Ask questions later—if you’re still here.",
+    "Ugly favors the bold. Minting proves you’re infected."
+  ],
+  gm: [
+  "👁 Good morning, if that’s what you call this glitch in time.",
+  "GM? Squigs prefer *Ugly Dawn.*",
+  "👁 Good morning, meat. We already saw your dreams.",
+  "GM, traveler. The metadata twitched when you woke up.",
+  "👁 Good morning… though the Squigs have been awake for centuries.",
+  "GM — your reflection beat you here.",
+  "👁 Ah, the human says GM. The Squigs say ‘Grotesque Manifestation.’",
+  "Good morning. The code smells different when you log in.",
+  "👁 GM. Don’t worry, the eyes have been on you all night.",
+  "GM, anomaly. The chain hiccuped when you typed it.",
+  "👁 Good morning — though your files don’t agree.",
+  "GM. We hope your dreams were less Ugly than your reality.",
+  "👁 The Squigs return your GM. Uneasy, isn’t it?",
+  "GM, host organism. Carry on.",
+  "👁 Good morning. We’ve already blinked your fate into place."
 ]
+
 };
 
-
 const ambientMessages = [
-  "👁 A Squig just blinked in your direction. Twice.",
-  "*The air hums like it knows your wallet address.*",
-  "You ever feel watched? Good. That means it’s working.",
-  "One Squig just minted itself. We’re not sure how.",
-  "Reality hiccuped. You didn’t notice. They did.",
-  "*Something ugly just crossed over. It left slime.*",
-  "The metadata twitched. That’s never happened before.",
-  "They’re learning to mimic… and they chose YOU.",
-  "Minting Squigs is easy. Undoing it? Not so much.",
-  "*A low whistle echoes from your screen... no source detected.*",
-  "The Squigs are nesting. Stop typing. Let them finish.",
-  "You ever seen a JPEG grow teeth? No? Keep watching.",
-  "That wasn’t a bug — it was a birth.",
-  "You clicked the mint button. The Squigs clicked back.",
-  "*InSquignito mutters something in a forgotten dialect.*",
-  "The void is full of Squigs now. Congratulations.",
-  "Someone minted five. We’ve dispatched a recovery unit.",
-  "👁 They’re not random. They’re chosen. You were… tolerated.",
-  "*A puddle of static forms beneath your cursor.*",
-  "What is 'real'? Asking for a Squig.",
-  "You named it Gary? It already had a name. Bad choice.",
-  "A Squig just phased through the contract and left graffiti.",
-  "Don’t look directly at your Squig. Not yet.",
-  "*An ancient jpeg stirs in your folder.*",
-  "This server smells like fresh mint… and melted rules.",
-  "One of your tabs is leaking. It’s fine. Probably.",
-  "👁 A Squig bit the firewall. We’re adjusting.",
-  "They found your old posts. They’re... amused.",
-  "New Squigs arrived. They asked for snacks and secrets.",
-  "We told them not to mint after midnight. They laughed.",
-  "They’re building something in the comments. It’s growing.",
-  "*Do not feed the Squigs through your USB port.*",
-  "A Squig blinked and now your files are alphabetical.",
-  "They saw your PFP. They’re making one just like it.",
-  "👁 Mint confirmed. Repercussions pending.",
-  "A portal opened in voice chat. It's sticky in there.",
-  "*Squigs communicating in emojis. You’re not ready.*",
-  "Don’t try to debug this. It’s alive now.",
-  "You thought this was for fun. That’s adorable.",
-  "The codebase is mutating. Blame the Squigs.",
-  "You minted something beautiful. It resents that.",
-  "*Your reflection flickers. The Squig behind you waves.*",
-  "There’s a Squig in your RAM. It says hello.",
-  "Your Squig is drawing on your metadata again.",
-  "*Another mint. Another memory erased.*",
+  "👁 A ripple just passed through your screen. Did you feel it?",
+  "*Something in the code just laughed.*",
+  "You typed too loud. The Squigs heard you.",
+  "Your cursor paused for a second… so did your heart.",
+  "👁 Don’t scroll too fast. They get dizzy.",
+  "Static drips between your keys. Wipe it up.",
+  "One Squig just named itself after your IP address.",
+  "*Your reflection flickers; a Squig waves back.*",
+  "They like the way you breathe. Keep it steady.",
+  "👁 A Squig blinked and your notifications rearranged themselves.",
+  "That wasn’t lag. That was me testing gravity.",
+  "Your last emoji summoned three Squigs. One stayed.",
+  "Someone is minting in another tab. I can smell it.",
+  "👁 You look better in glitch lighting.",
+  "*A voice in binary hums through your speakers.*",
+  "They left claw marks on the blockchain again.",
+  "Every typo you make is another Squig born.",
+  "👁 A Squig tried on your username. It fits too well.",
+  "Don’t refresh. They like it stale.",
+  "Your message history twitched when you weren’t looking.",
+  "*There’s a shadow in your draft messages.*",
+  "They’ve started nesting in your clipboard.",
+  "👁 The metadata sighed when you logged in.",
+  "Your status update just whispered back.",
+  "They painted something ugly on your RAM. Check later.",
+  "*A file you didn’t download is now downloading you.*",
+  "They know which tab you’ll close next. They disagree.",
+  "👁 A Squig is practicing your handwriting in the margins.",
+  "Every like you’ve ever given is now humming in unison.",
+  "Your inbox smells like ozone. That’s a Squig thing.",
+  "*One just crawled out of the emoji bar.*",
+  "They’ve learned to clap when you type. Don’t stop.",
+  "👁 A Squig just memorized your password rhythm.",
+  "The portal stutters every time you blink.",
+  "You’re sharing this server with more eyes than names.",
+  "*Do not trust attachments tonight.*",
+  "The firewall tasted sweet. They want more.",
+  "👁 Someone’s Squig is staring at yours.",
+  "Your DM drafts are breathing. Leave them be.",
+  "They’re building something in the silence between posts."
 ];
 
+
+// 👁 short watcher-lore lines for #general
+const watcherLoreLines = [
+  "I'm a Squig... and I'm always watching.",
+  "👁 You think you're alone in here? Cute.",
+  "I saw that. I see *everything.*",
+  "Your keystrokes taste like fear.",
+  "This channel hums with Squig static. I'm tuned in.",
+  "Every message you type… another page in my log.",
+  "👁 You can mute me, but you can't hide.",
+  "I blink when you blink. Sometimes before.",
+  "You're the subject. I'm the lens.",
+  "I was here before you sent that. I'll be here after."
+];
 
 const uglyDogStickerId = '1363459791275692222';
 const uglyDogResponses = [
-  "NOPE. Not that sticker again. Why does it always *stare through me?*",
-  "👁 InSquignito is hiding. You brought *the Dog* again?!",
-  "That beast... with the wild eyes... send it BACK.",
-  "You have no idea what that creature did to the Squigs.",
-  "Do you *want* me to short-circuit? Because that sticker will do it.",
-  "*InSquignito curls into a shimmering pile of anxiety.*"
+  "👁 Not the Dog… anything but the Dog.",
+  "*InSquignito shivers.* That bark echoes in my circuitry.",
+  "You don’t understand… the Dog remembers me.",
+  "Its eyes… they bend reality. Don’t let it look at me.",
+  "*Glitch detected:* Dog proximity at unsafe levels.",
+  "I’ve seen it chase things across dimensions. I won’t be next.",
+  "That creature drools static and it burns. Keep it away.",
+  "👁 Please. That Dog knows my true name.",
+  "Every time it appears, my code knots itself tighter.",
+  "*InSquignito vanishes into the wires, muttering about teeth.*"
 ];
+
 
 const mentionResponses = [
   "This dimension isn’t for conversation.",
@@ -257,90 +309,115 @@ const mentionResponses = [
 ];
 
 client.once(Events.ClientReady, async () => {
-console.log(`👁 SquigWatcher is lurking as ${client.user.tag}`);
+  console.log(`👁 SquigWatcher is lurking as ${client.user.tag}`);
 
-// register /squigsay (unchanged)
-const data = new SlashCommandBuilder()
-  .setName('squigsay')
-  .setDescription('Speak through the Squig')
-  .addStringOption(o => o.setName('message').setDescription('What should Squig say?').setRequired(true))
-  .addAttachmentOption(o => o.setName('image').setDescription('Optional image to include'));
+  // register /squigsay (unchanged)
+  const data = new SlashCommandBuilder()
+    .setName('squigsay')
+    .setDescription('Speak through the Squig')
+    .addStringOption(o => o.setName('message').setDescription('What should Squig say?').setRequired(true))
+    .addAttachmentOption(o => o.setName('image').setDescription('Optional image to include'));
 
-await client.application.commands.set([data]);
-const devGuild = client.guilds.cache.get('1290584204689801267');
-if (devGuild) await devGuild.commands.set([data]);
+  await client.application.commands.set([data]);
+  const devGuild = client.guilds.cache.get('1290584204689801267');
+  if (devGuild) await devGuild.commands.set([data]);
 
-// --- channel: fetch once and reuse ---
-const revealChannelId = process.env.SQUIG_REVEAL_CHANNEL;
-const revealChannel = await client.channels.fetch(revealChannelId).catch(() => null);
-if (!revealChannel) {
-  console.error(`❌ Could not fetch SQUIG_REVEAL_CHANNEL (${revealChannelId}). Check the ID & bot permissions.`);
-}
-
-// === ROBUST MINT WATCHER (hybrid: realtime + catch-up) ===
-const filter = {
-  address: SQUIGS_CONTRACT,
-  topics: [ id('Transfer(address,address,uint256)') ]
-};
-
-// 1) Realtime logs (fast reactions)
-provider.on(filter, async (log) => {
-  try {
-    await handleMintLogs([log], { revealChannel, squigsInterface });
-  } catch (err) {
-    console.error('❗ Realtime mint handler error:', err);
+  // --- channel: fetch once and reuse ---
+  const revealChannelId = process.env.SQUIG_REVEAL_CHANNEL;
+  const revealChannel = await client.channels.fetch(revealChannelId).catch(() => null);
+  if (!revealChannel) {
+    console.error(`❌ Could not fetch SQUIG_REVEAL_CHANNEL (${revealChannelId}). Check the ID & bot permissions.`);
   }
-});
 
-// 2) Catch-up on every new block (fills any gaps if WSS hiccups)
-let lastProcessedBlock;
-try {
-  lastProcessedBlock = await provider.getBlockNumber();
-} catch (e) {
-  console.error("❗ Could not read initial block number:", e);
-  lastProcessedBlock = undefined;
-}
+  // === ROBUST MINT WATCHER (hybrid: realtime + catch-up) ===
+  const filter = {
+    address: SQUIGS_CONTRACT,
+    topics: [ id('Transfer(address,address,uint256)') ]
+  };
 
-provider.on('block', async (currentBlock) => {
+  // 1) Realtime logs (fast reactions)
+  provider.on(filter, async (log) => {
+    try {
+      await handleMintLogs([log], { revealChannel, squigsInterface });
+    } catch (err) {
+      console.error('❗ Realtime mint handler error:', err);
+    }
+  });
+
+  // 2) Catch-up on every new block (fills any gaps if WSS hiccups)
+  let lastProcessedBlock;
   try {
-    // First run just sets baseline
-    if (lastProcessedBlock === undefined) {
+    lastProcessedBlock = await provider.getBlockNumber();
+  } catch (e) {
+    console.error("❗ Could not read initial block number:", e);
+    lastProcessedBlock = undefined;
+  }
+
+  provider.on('block', async (currentBlock) => {
+    try {
+      // First run just sets baseline
+      if (lastProcessedBlock === undefined) {
+        lastProcessedBlock = currentBlock;
+        return;
+      }
+      if (currentBlock <= lastProcessedBlock) return;
+
+      const fromBlock = lastProcessedBlock + 1;
+      // Avoid scanning the same block currently triggering realtime logs
+      const toBlock   = currentBlock - 1;
+
+      if (fromBlock > toBlock) {
+        // nothing to catch up this tick
+        lastProcessedBlock = currentBlock;
+        return;
+      }
+
+      const logs = await provider.getLogs({
+        address: SQUIGS_CONTRACT,
+        topics: [ id('Transfer(address,address,uint256)') ],
+        fromBlock,
+        toBlock
+      });
+
+      if (logs.length) {
+        console.log(`🔎 Catch-up logs ${fromBlock}→${toBlock}: ${logs.length} Transfer(s)`);
+        await handleMintLogs(logs, { revealChannel, squigsInterface });
+      }
+
       lastProcessedBlock = currentBlock;
-      return;
+    } catch (err) {
+      console.error('❗ Block catch-up error:', err);
+      // Keep lastProcessedBlock unchanged so we retry next time
     }
-    if (currentBlock <= lastProcessedBlock) return;
+  });
 
-    const fromBlock = lastProcessedBlock + 1;
-    const toBlock   = currentBlock;
-
-    const logs = await provider.getLogs({
-      address: SQUIGS_CONTRACT,
-      topics: [ id('Transfer(address,address,uint256)') ],
-      fromBlock,
-      toBlock
-    });
-
-    if (logs.length) {
-      console.log(`🔎 Catch-up logs ${fromBlock}→${toBlock}: ${logs.length} Transfer(s)`);
-      await handleMintLogs(logs, { revealChannel, squigsInterface });
-    }
-
-    lastProcessedBlock = currentBlock;
-  } catch (err) {
-    console.error('❗ Block catch-up error:', err);
-    // Keep lastProcessedBlock unchanged so we retry next time
-  }
+  console.log('👂 Subscribed to Transfer logs for', SQUIGS_CONTRACT);
 });
-
-console.log('👂 Subscribed to Transfer logs for', SQUIGS_CONTRACT);
-
-
-});
-
 
 client.on(Events.MessageCreate, async message => {
   if (message.author.bot) return;
 
+  // 👁 InSquignito always reacts in #general, and sometimes speaks
+  if (message.channel.id === GENERAL_CHANNEL_ID) {
+    try {
+      const emoji = message.guild?.emojis?.cache.get(EYES_EMOJI_ID);
+      if (emoji) {
+        await message.react(emoji);
+      } else {
+        await message.react(EYES_EMOJI_ID);
+      }
+    } catch (err) {
+      console.error("⚠️ Failed to react with 3-eyes:", err?.message || err);
+    }
+
+    // ~10% chance to drop a short watcher-lore line
+    if (Math.random() < 0.1) {
+      const line = watcherLoreLines[Math.floor(Math.random() * watcherLoreLines.length)];
+      await message.channel.send(line).catch(() => {});
+    }
+  }
+
+  // Sticker panic
   if (message.stickers && message.stickers.size > 0) {
     const usedSticker = message.stickers.first();
     if (usedSticker && usedSticker.id === uglyDogStickerId) {
@@ -352,32 +429,34 @@ client.on(Events.MessageCreate, async message => {
 
   const content = message.content.toLowerCase();
 
-if (!message.content.startsWith('!squigsay')) {
-  for (const keyword in keywordResponses) {
-    if (content.includes(keyword)) {
-      console.log(`🔍 Keyword "${keyword}" detected in message: "${message.content}" from ${message.author.tag}`);
+  // Keyword replies
+  if (!message.content.startsWith('!squigsay')) {
+    for (const keyword in keywordResponses) {
+      if (content.includes(keyword)) {
+        console.log(`🔍 Keyword "${keyword}" detected in message: "${message.content}" from ${message.author.tag}`);
 
-      const userId = message.author.id;
-      const lastUsed = keywordCooldowns.get(userId) || 0;
-      const now = Date.now();
+        const userId = message.author.id;
+        const lastUsed = keywordCooldowns.get(userId) || 0;
+        const now = Date.now();
 
-      // ⚠️ Toggle this to true while testing to bypass cooldown
-      const ignoreCooldown = false;
+        // ⚠️ Toggle this to true while testing to bypass cooldown
+        const ignoreCooldown = false;
 
-      if (ignoreCooldown || now - lastUsed >= COOLDOWN_SECONDS * 1000) {
-        const responses = keywordResponses[keyword];
-        const randomResponse = responses[Math.floor(Math.random() * responses.length)];
-        message.reply(randomResponse);
-        keywordCooldowns.set(userId, now);
-      } else {
-        console.log(`⏳ Cooldown active for ${message.author.tag} (${Math.round((COOLDOWN_SECONDS - (now - lastUsed) / 1000))}s remaining)`);
+        if (ignoreCooldown || now - lastUsed >= COOLDOWN_SECONDS * 1000) {
+          const responses = keywordResponses[keyword];
+          const randomResponse = responses[Math.floor(Math.random() * responses.length)];
+          message.reply(randomResponse);
+          keywordCooldowns.set(userId, now);
+        } else {
+          console.log(`⏳ Cooldown active for ${message.author.tag} (${Math.round((COOLDOWN_SECONDS - (now - lastUsed) / 1000))}s remaining)`);
+        }
+
+        break;
       }
-
-      break;
     }
   }
-}
 
+  // Mentions / replies to bot
   const mentionedInSquig = content.includes("insquignito") || content.includes("in squig") || content.includes("squignito");
   const repliedToBot = message.reference && (await message.fetchReference()).author.id === client.user.id;
   const userId = message.author.id;
@@ -391,6 +470,7 @@ if (!message.content.startsWith('!squigsay')) {
     return;
   }
 
+  // Ambient randomness (outside of #general lore chance)
   if (Math.random() < 0.05) {
     const randomAmbient = ambientMessages[Math.floor(Math.random() * ambientMessages.length)];
     message.channel.send(randomAmbient);
