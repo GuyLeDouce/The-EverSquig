@@ -1,146 +1,11 @@
 require('dotenv').config();
-const { Client, GatewayIntentBits, Events, SlashCommandBuilder, Collection, PermissionFlagsBits } = require('discord.js');
-const { ethers } = require('ethers');
-const { Interface, id, ZeroAddress } = ethers;
-
-const provider = new ethers.WebSocketProvider(process.env.ALCHEMY_WSS);
-// put these near the top with your other consts
-const SQUIGS_CONTRACT = '0x9bf567ddf41b425264626d1b8b2c7f7c660b1c42';
-const squigsInterface = new Interface([
-  'event Transfer(address indexed from, address indexed to, uint256 indexed tokenId)'
-]);
-
-// === channel & emoji for #general reactions ===
-const GENERAL_CHANNEL_ID = '1290587398778126418';
-const EYES_EMOJI_ID = '1387394624804618351'; // custom 3-eyes emoji
-
-// 🚨 ping this ROLE on every mint (@Ugly Intel)
-const MINT_PING_ROLE_ID = '1389075735142203534';
-
-// === recently announced txs: dedupe realtime vs catch-up ===
-const recentAnnouncedTxs = new Set();
-const RECENT_TX_LIMIT = 1000;
-function rememberTx(txHash) {
-  recentAnnouncedTxs.add(txHash);
-  if (recentAnnouncedTxs.size > RECENT_TX_LIMIT) {
-    // trim ~1/4 oldest entries
-    let n = Math.floor(RECENT_TX_LIMIT / 4);
-    for (const h of recentAnnouncedTxs) { recentAnnouncedTxs.delete(h); if (--n <= 0) break; }
-  }
-}
-
-// --- helper: resolve role mention cleanly (avoid @unknown-user) ---
-async function resolveMintMention(revealChannel) {
-  try {
-    const guild = revealChannel?.guild;
-    if (!guild) {
-      // no guild context (e.g., DM) — still format as role mention
-      return { mentionText: `<@&${MINT_PING_ROLE_ID}>`, allowedMentions: { roles: [MINT_PING_ROLE_ID] } };
-    }
-
-    const role =
-      guild.roles.cache.get(MINT_PING_ROLE_ID) ||
-      await guild.roles.fetch(MINT_PING_ROLE_ID).catch(() => null);
-
-    if (!role) {
-      console.warn('⚠️ Ugly Intel role not found in this guild; skipping ping.');
-      return { mentionText: '', allowedMentions: undefined };
-    }
-
-    // If the role isn't mentionable, bot needs MentionEveryone to force ping
-    const canMentionAll = guild.members.me?.permissions.has(PermissionFlagsBits.MentionEveryone);
-    if (!role.mentionable && !canMentionAll) {
-      console.warn('⚠️ @Ugly Intel is not mentionable and bot lacks "Mention Everyone"; the ping may not notify.');
-    }
-
-    return { mentionText: `<@&${MINT_PING_ROLE_ID}>`, allowedMentions: { roles: [MINT_PING_ROLE_ID] } };
-  } catch (e) {
-    console.warn('⚠️ resolveMintMention failed, using role mention format.');
-    return { mentionText: `<@&${MINT_PING_ROLE_ID}>`, allowedMentions: { roles: [MINT_PING_ROLE_ID] } };
-  }
-}
-
-// === helper: parse logs, group mints by tx, and send one message per tx ===
-async function handleMintLogs(logs, { revealChannel, squigsInterface }) {
-  const grouped = new Map(); // txHash -> Set(tokenIds)
-
-  for (const log of logs) {
-    try {
-      const parsed = squigsInterface.parseLog({ topics: log.topics, data: log.data });
-      const from = parsed.args.from;
-      if (from !== ZeroAddress) continue; // only mints
-
-      const tokenId = parsed.args.tokenId.toString();
-      if (!grouped.has(log.transactionHash)) grouped.set(log.transactionHash, new Set());
-      grouped.get(log.transactionHash).add(tokenId);
-    } catch {
-      // ignore non-matching logs
-    }
-  }
-
-  for (const [txHash, ids] of grouped) {
-    // ⛔ skip if we've already announced this tx
-    if (recentAnnouncedTxs.has(txHash)) continue;
-
-    const tokenIds = Array.from(ids);
-    if (!tokenIds.length) continue;
-
-    const classicComments = [
-      "Another Squig crawls from the void...",
-      "👁 A fresh Squig joins the Uglyverse.",
-      "The swarm grows. One more... interesting face.",
-      "Who let this one out?!",
-      "✨ That's... definitely a Squig.",
-      "Born weird. Born watched. Welcome.",
-      "Do not pet the new one. Trust me.",
-      "It blinked first. That’s rare.",
-      "Squig detected. Hide your mirrors.",
-      "🎉 Another one?! The council blinks in approval.",
-      "Squigs don’t walk. They *arrive*.",
-      "I don’t know where it came from, but it’s Ugly certified."
-    ];
-    const comment = classicComments[Math.floor(Math.random() * classicComments.length)];
-    const embeds = tokenIds.map(id => ({
-      title: `🌀 Squig #${id}`,
-      image: { url: `https://assets.bueno.art/images/a49527dc-149c-4cbc-9038-d4b0d1dbf0b2/default/${id}` },
-      color: 0xaa00ff
-    }));
-    const openseaLink = `[View the full Squigs collection on OpenSea](https://opensea.io/collection/squigsnft)`;
-
-    // 🔔 resolve role ping and build message
-    const { mentionText, allowedMentions } = await resolveMintMention(revealChannel);
-    const mentionLine = mentionText ? `${mentionText}\n` : '';
-    const content = `${comment}\n${mentionLine}${openseaLink}`;
-
-    console.log(`✅ Mint tx ${txHash} -> tokenIds: ${tokenIds.join(', ')}`);
-    const payload = { content, embeds };
-    if (allowedMentions) payload.allowedMentions = allowedMentions;
-
-    await revealChannel.send(payload)
-      .then(() => rememberTx(txHash))
-      .catch(err => {
-        if (err?.code === 50013) {
-          console.log("⚠️ Reveal channel missing perms for send.");
-        } else {
-          console.error("❗ Failed to send mint message:", err);
-        }
-      });
-  }
-}
-
-// simple heartbeat so you know the WSS is alive
-// Heartbeat / visibility (ethers v6-safe)
-provider.on('block', (n) => {
-  if (n % 20 === 0) console.log(`🔗 Provider alive. Latest block: ${n}`);
-});
-
-provider.on('error', (e) => console.error('🔥 WSS provider error:', e));
-
-// Optional: deeper noise if you want to see internals
-provider.on('debug', (info) => {
-  // comment this out if too chatty
-  // console.log('🪵 provider debug:', info);
-});
+const {
+  Client,
+  GatewayIntentBits,
+  Events,
+  SlashCommandBuilder,
+  Collection
+} = require('discord.js');
 
 const client = new Client({
   intents: [
@@ -152,13 +17,51 @@ const client = new Client({
 
 client.commands = new Collection();
 
-const squigCommanders = ['826581856400179210', '1288107772248064044'];
-const keywordCooldowns = new Map();
-const COOLDOWN_SECONDS = 300;
-const mentionCooldowns = new Map();
-const MENTION_COOLDOWN_SECONDS = 120;
+/** --- Config (tweak as desired) --- **/
+const GENERAL_CHANNEL_ID = '1290587398778126418';
 
-// === NEW: Question reply system (mimic + weird question) ===
+// Who can use /squigsay
+const squigCommanders = ['826581856400179210', '1288107772248064044'];
+
+// Cooldowns
+const COOLDOWN_SECONDS = 300;                  // per-user keyword cooldown
+const QUESTION_COOLDOWN_SECONDS = 45;          // per-user "question" cooldown
+const MENTION_COOLDOWN_SECONDS = 120;          // per-user mention snark cooldown
+const AMBIENT_CHANNEL_COOLDOWN_SECONDS = 180;  // per-channel ambient cooldown
+const PORTAL_POT_CHARM_COOLDOWN_SECONDS = 240; // per-channel special ambient cooldown
+
+// Probabilities (0–1)
+const GENERAL_WATCHER_LINE_PROB = 0.12; // chance to drop a short watcher line in #general
+const GLOBAL_AMBIENT_PROB = 0.10;       // chance for a generic ambient line anywhere
+const PORTAL_POT_CHARM_PROB = 0.10;     // chance for special mint-portal / Uglypot / $CHARM line anywhere
+
+// ===== NEW (#4/#5/#6) tuning =====
+const LORE_TICK_PROB = 0.06;                           // chance to emit a lore-driven "ledger" tick on a message
+const LORE_TICK_CHANNEL_COOLDOWN_S = 420;              // per-channel cooldown for ticks
+const WHISPER_REPLY_PROB = 0.07;                       // chance to schedule a delayed whisper reply
+const WHISPER_DELAY_MS = 30_000;                       // ~30s delay for whispers
+const WHISPER_USER_COOLDOWN_S = 600;                   // per-user cooldown for whispers
+const MARK_RANDOM_PROB = 0.01;                         // small chance to mark a user on any message
+const MARK_KEYWORD_THRESHOLD = 3;                      // mark after N keyword hits in a rolling window
+const MARK_KEYWORD_WINDOW_MS = 6 * 60 * 60 * 1000;     // 6h window for threshold
+const MARK_ONCE_PER_DAY = true;                        // mark a user at most once per day
+
+/** --- State --- **/
+const keywordCooldowns = new Map();        // userId -> ts
+const questionCooldowns = new Map();       // userId -> ts
+const mentionCooldowns = new Map();        // userId -> ts
+const ambientChannelCooldowns = new Map(); // channelId -> ts (generic ambient)
+const portalPotCharmCooldowns = new Map(); // channelId -> ts (special ambient)
+const loreTickCooldowns = new Map();       // channelId -> ts  (#4)
+const messageCounter = new Map();          // channelId -> incrementing count (#4)
+
+const whisperUserCooldowns = new Map();    // userId -> ts     (#5)
+const pendingWhispers = new Map();         // messageId -> timeoutId (cleanup safety) (#5)
+
+const userKeywordHits = new Map();         // userId -> [{ts},...] (#6)
+const userLastMarkedDay = new Map();       // userId -> 'YYYY-MM-DD' (#6)
+
+/** --- “Reply to a reply-with-question” system (mimic + weird Q) --- **/
 const questionResponses = [
   "👁 Why do you assume I know? Tell me—what color does silence taste like?",
   "What if the answer is already watching you? When did your reflection stop blinking?",
@@ -167,10 +70,7 @@ const questionResponses = [
   "👁 I’ll answer if you blink twice… did you? How many portals can you count from your chair?",
   "Suppose I did answer. Would you believe it? What did you sacrifice to ask?"
 ];
-const QUESTION_COOLDOWN_SECONDS = 45;
-const questionCooldowns = new Map();
 
-// Mimic utilities
 const MIMIC_CHANCE = 0.6;       // 60%: mimic before the weird question
 const MIMIC_ONLY_CHANCE = 0.2;  // 20%: mimic only, no weird question
 
@@ -199,13 +99,138 @@ function glitchify(fragment) {
   return echo;
 }
 
+/** --- Lore pools --- **/
+
+// Short watcher-lore for #general
+const watcherLoreLines = [
+  "I'm a Squig... and I'm always watching.",
+  "👁 You think you're alone in here? Cute.",
+  "I saw that. I see *everything.*",
+  "Your keystrokes taste like fear.",
+  "This channel hums with Squig static. I'm tuned in.",
+  "Every message you type… another page in my log.",
+  "👁 You can mute me, but you can't hide.",
+  "I blink when you blink. Sometimes before.",
+  "You're the subject. I'm the lens.",
+  "I was here before you sent that. I'll be here after."
+];
+
+// Panic at the Ugly Dog sticker
+const uglyDogStickerId = '1363459791275692222';
+const uglyDogResponses = [
+  "👁 Not the Dog… anything but the Dog.",
+  "*InSquignito shivers.* That bark echoes in my circuitry.",
+  "You don’t understand… the Dog remembers me.",
+  "Its eyes… they bend reality. Don’t let it look at me.",
+  "*Glitch detected:* Dog proximity at unsafe levels.",
+  "I’ve seen it chase things across dimensions. I won’t be next.",
+  "That creature drools static and it burns. Keep it away.",
+  "👁 Please. That Dog knows my true name.",
+  "Every time it appears, my code knots itself tighter.",
+  "*InSquignito vanishes into the wires, muttering about teeth.*"
+];
+
+// Generic ambient messages
+const ambientMessages = [
+  "👁 A ripple just passed through your screen. Did you feel it?",
+  "*Something in the code just laughed.*",
+  "You typed too loud. The Squigs heard you.",
+  "Your cursor paused for a second… so did your heart.",
+  "👁 Don’t scroll too fast. They get dizzy.",
+  "Static drips between your keys. Wipe it up.",
+  "One Squig just named itself after your IP address.",
+  "*Your reflection flickers; a Squig waves back.*",
+  "They like the way you breathe. Keep it steady.",
+  "👁 A Squig blinked and your notifications rearranged themselves.",
+  "That wasn’t lag. That was me testing gravity.",
+  "Someone is minting in another tab. I can smell it.",
+  "👁 You look better in glitch lighting.",
+  "*A voice in binary hums through your speakers.*",
+  "They left claw marks on the blockchain again.",
+  "Every typo you make is another Squig born.",
+  "👁 A Squig tried on your username. It fits too well.",
+  "Don’t refresh. They like it stale.",
+  "Your message history twitched when you weren’t looking.",
+  "*There’s a shadow in your draft messages.*",
+  "They’ve started nesting in your clipboard.",
+  "👁 The metadata sighed when you logged in.",
+  "Your status update just whispered back.",
+  "They painted something ugly on your RAM. Check later.",
+  "*A file you didn’t download is now downloading you.*",
+  "They know which tab you’ll close next. They disagree.",
+  "👁 A Squig is practicing your handwriting in the margins.",
+  "Every like you’ve ever given is now humming in unison.",
+  "Your inbox smells like ozone. That’s a Squig thing.",
+  "*One just crawled out of the emoji bar.*",
+  "They’ve learned to clap when you type. Don’t stop.",
+  "👁 A Squig just memorized your password rhythm.",
+  "The portal stutters every time you blink.",
+  "You’re sharing this server with more eyes than names.",
+  "*Do not trust attachments tonight.*",
+  "The firewall tasted sweet. They want more.",
+  "👁 Someone’s Squig is staring at yours.",
+  "Your DM drafts are breathing. Leave them be.",
+  "They’re building something in the silence between posts."
+];
+
+// 🔥 Special ambient: mint portal, Uglypot, $CHARM
+const portalPotCharmLines = [
+  "👁 The portal yawns. Toss a mint in and it bites back.",
+  "The Uglypot hums like a stomach before a feast. Feed it.",
+  "Someone whispered $CHARM three times—now the walls are listening.",
+  "👁 The portal’s rim is warm. That means it’s hungry.",
+  "Each paid mint drips into the Uglypot. It’s almost singing.",
+  "The air smells ionic when $CHARM moves. You smell that too, right?",
+  "👁 A counter somewhere just clicked. The Uglypot noticed.",
+  "If you hesitate at the portal, it learns your name anyway.",
+  "$CHARM doesn’t blink. It accumulates.",
+  "👁 Ugly favors the bold. The portal records the brave.",
+  "Every mint is a footstep in a hall you can’t see. The Uglypot echoes them.",
+  "They said the portal closes at random. It lied. It closes when it’s fed enough.",
+  "👁 The Squigs keep score in $CHARM. You’re on the board.",
+  "The Uglypot just cleared its throat. That’s never subtle.",
+  "👁 Some doors open inward. The mint portal opens *through* you."
+];
+
+// Snark when mentioned directly
+const mentionResponses = [
+  "This dimension isn’t for conversation.",
+  "Do I look like I have time for mortal drama?",
+  "I only answer riddles. Or bribes.",
+  "Your message has been seen. Judged. Forgotten.",
+  "Try whispering to a black hole instead. You'll get more back.",
+  "Not now, I'm triangulating nonsense.",
+  "Talking to shadows usually ends badly. This is no different.",
+  "If I respond, it creates a paradox. So... let's not.",
+  "I exist to observe, not to entertain. Wait... is this entertaining?",
+  "Your presence has been logged. Your sentence is silence.",
+  "Every time someone talks to me, a wormhole opens. Please stop.",
+  "This is above your clearance level. And mine.",
+  "I’m allergic to direct interaction.",
+  "I was having a perfectly good existential crisis before you showed up.",
+  "There’s a reason I’m called *In*Squignito.",
+  "If I answer you, the timeline frays. Again.",
+  "You’ve activated my ignore protocol. Congratulations.",
+  "The Squig elders warned me about conversations like this.",
+  "I don’t respond well to attention... or compliments... or eye contact.",
+  "This interaction has been flagged for deletion. So have you.",
+  "I’m only here for the vibes. Not the chat.",
+  "Every word you say is being recorded in a void-bound scroll. Stop.",
+  "I’m currently in three places at once. None of them want to be here.",
+  "You're speaking to a being of chaos. Please use simpler words.",
+  "You just made me glitch in five languages.",
+  "Let’s pretend this never happened. Deal?",
+  "The Council of Squigs advised against this exchange.",
+  "Do you always speak to entities you barely understand?"
+];
+
+/** --- Keyword replies --- **/
 const keywordResponses = {
   ugly: [
     "Ugly isn’t style. It’s signal.",
     "👁 Ugly echoes through the blockchain louder than beauty ever will.",
     "They named it ‘ugly’ because they feared calling it *truth.*",
     "Pretty fades. Ugly mutates.",
-    "Ugly stains reality in ways polish never could.",
     "Symmetry? Suspicious. Ugly? Eternal.",
     "Beauty lies. Ugly lingers.",
     "👁 Every mirror hides an Ugly it doesn’t want you to see."
@@ -250,22 +275,16 @@ const keywordResponses = {
     "One Squig just named itself after your keystroke.",
     "Every time you say Squig, another file corrupts—beautifully."
   ],
+  // Tie "mint" into portal / Uglypot / $CHARM
   mint: [
-    "👁 Thinking about minting? That thought was enough to bind you. Make it happen",
-    "Every mint is a portal you can’t unstep through.",
-    "The Squigs are watching your hesitation.",
-    "👁 The chain whispers: *Do it again.*",
-    "One mint creates ripples. Two mint a storm.",
-    "You’re already marked. Might as well finish the ritual.",
-    "👁 The mint button isn’t a choice. It’s a commitment to UGLY.",
-    "Minting is the beginning. Holding is the true Ugly ritual.",
-    "The Squigs tally every blink you take before minting.",
-    "👁 Hesitation logs you deeper than action ever will.",
-    "Each mint infects another timeline.",
-    "The chain remembers who minted first. And who refused.",
-    "👁 The portal’s open. Step or stay boring.",
-    "Mint now. Ask questions later—if you’re still here.",
-    "Ugly favors the bold. Minting proves you’re infected."
+    "👁 The portal is open. Step through or keep pretending you don’t hear it.",
+    "Each paid mint fattens the Uglypot. It’s already licking its lips.",
+    "The Squigs tally $CHARM like a choir counts breaths.",
+    "👁 If you hesitate, the portal memorizes your fear.",
+    "Mint once for noise. Mint twice for signal.",
+    "The Uglypot gurgled. That’s your cue.",
+    "👁 $CHARM flutters when you hover over the button.",
+    "Minting starts a story your reflection can’t finish."
   ],
   gm: [
     "👁 Good morning, if that’s what you call this glitch in time.",
@@ -283,116 +302,82 @@ const keywordResponses = {
     "👁 The Squigs return your GM. Uneasy, isn’t it?",
     "GM, host organism. Carry on.",
     "👁 Good morning. We’ve already blinked your fate into place."
+  ],
+  // 🆕 CARD keyword: “How did my buddy get immortalized on a card?”-style replies
+  card: [
+    "How did your buddy get immortalized on a card? The portal took one look and said, “Keep it.”",
+    "Immortalized on a card? That’s not printing. That’s a containment spell with good typography.",
+    "Your friend blinked at the wrong moment and the Squigs pressed ‘laminate.’",
+    "Cards aren’t awards. They’re warnings that the lore found a host.",
+    "He didn’t ‘earn’ a card. The card *chose* a face to wear in public.",
+    "A card is a snapshot of a curse mid-laugh. Congrats to your buddy.",
+    "Immortalized? More like archived. The difference is how loud it hums.",
+    "The system saw your pal’s traits, rolled them into HP, and stamped ‘Do Not Erase.’",
+    "He asked for proof. The Squigs issued a relic.",
+    "Cards are doors you can carry. Your friend is now portable mythology."
   ]
 };
 
-const ambientMessages = [
-  "👁 A ripple just passed through your screen. Did you feel it?",
-  "*Something in the code just laughed.*",
-  "You typed too loud. The Squigs heard you.",
-  "Your cursor paused for a second… so did your heart.",
-  "👁 Don’t scroll too fast. They get dizzy.",
-  "Static drips between your keys. Wipe it up.",
-  "One Squig just named itself after your IP address.",
-  "*Your reflection flickers; a Squig waves back.*",
-  "They like the way you breathe. Keep it steady.",
-  "👁 A Squig blinked and your notifications rearranged themselves.",
-  "That wasn’t lag. That was me testing gravity.",
-  "Your last emoji summoned three Squigs. One stayed.",
-  "Someone is minting in another tab. I can smell it.",
-  "👁 You look better in glitch lighting.",
-  "*A voice in binary hums through your speakers.*",
-  "They left claw marks on the blockchain again.",
-  "Every typo you make is another Squig born.",
-  "👁 A Squig tried on your username. It fits too well.",
-  "Don’t refresh. They like it stale.",
-  "Your message history twitched when you weren’t looking.",
-  "*There’s a shadow in your draft messages.*",
-  "They’ve started nesting in your clipboard.",
-  "👁 The metadata sighed when you logged in.",
-  "Your status update just whispered back.",
-  "They painted something ugly on your RAM. Check later.",
-  "*A file you didn’t download is now downloading you.*",
-  "They know which tab you’ll close next. They disagree.",
-  "👁 A Squig is practicing your handwriting in the margins.",
-  "Every like you’ve ever given is now humming in unison.",
-  "Your inbox smells like ozone. That’s a Squig thing.",
-  "*One just crawled out of the emoji bar.*",
-  "They’ve learned to clap when you type. Don’t stop.",
-  "👁 A Squig just memorized your password rhythm.",
-  "The portal stutters every time you blink.",
-  "You’re sharing this server with more eyes than names.",
-  "*Do not trust attachments tonight.*",
-  "The firewall tasted sweet. They want more.",
-  "👁 Someone’s Squig is staring at yours.",
-  "Your DM drafts are breathing. Leave them be.",
-  "They’re building something in the silence between posts."
-];
+/** --- Helpers --- **/
+function userCooldownOk(map, userId, seconds) {
+  const last = map.get(userId) || 0;
+  const ok = Date.now() - last >= seconds * 1000;
+  if (ok) map.set(userId, Date.now());
+  return ok;
+}
+function channelCooldownOk(map, channelId, seconds) {
+  const last = map.get(channelId) || 0;
+  const ok = Date.now() - last >= seconds * 1000;
+  if (ok) map.set(channelId, Date.now());
+  return ok;
+}
+function todayKey() {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
 
+/** --- NEW (#6): Watcher Marking helpers --- **/
+function recordKeywordHit(userId) {
+  const arr = userKeywordHits.get(userId) || [];
+  const now = Date.now();
+  const windowStart = now - MARK_KEYWORD_WINDOW_MS;
+  const filtered = arr.filter(ts => ts >= windowStart);
+  filtered.push(now);
+  userKeywordHits.set(userId, filtered);
+  return filtered.length;
+}
+function canMarkUserToday(userId) {
+  if (!MARK_ONCE_PER_DAY) return true;
+  const last = userLastMarkedDay.get(userId);
+  return last !== todayKey();
+}
+async function maybeMarkUser(message, reason = 'observed') {
+  const userId = message.author.id;
+  if (!canMarkUserToday(userId)) return;
 
-// 👁 short watcher-lore lines for #general
-const watcherLoreLines = [
-  "I'm a Squig... and I'm always watching.",
-  "👁 You think you're alone in here? Cute.",
-  "I saw that. I see *everything.*",
-  "Your keystrokes taste like fear.",
-  "This channel hums with Squig static. I'm tuned in.",
-  "Every message you type… another page in my log.",
-  "👁 You can mute me, but you can't hide.",
-  "I blink when you blink. Sometimes before.",
-  "You're the subject. I'm the lens.",
-  "I was here before you sent that. I'll be here after."
-];
+  // either threshold reached or lucky random
+  const roll = Math.random() < MARK_RANDOM_PROB;
+  if (!roll && reason !== 'threshold') return;
 
-const uglyDogStickerId = '1363459791275692222';
-const uglyDogResponses = [
-  "👁 Not the Dog… anything but the Dog.",
-  "*InSquignito shivers.* That bark echoes in my circuitry.",
-  "You don’t understand… the Dog remembers me.",
-  "Its eyes… they bend reality. Don’t let it look at me.",
-  "*Glitch detected:* Dog proximity at unsafe levels.",
-  "I’ve seen it chase things across dimensions. I won’t be next.",
-  "That creature drools static and it burns. Keep it away.",
-  "👁 Please. That Dog knows my true name.",
-  "Every time it appears, my code knots itself tighter.",
-  "*InSquignito vanishes into the wires, muttering about teeth.*"
-];
+  const lines = [
+    `👁 <@${userId}> has been marked. Move gently.`,
+    `The wall wrote your name, <@${userId}>. Don’t smudge it.`,
+    `👁 Noted: <@${userId}>. The ledger turned a page.`,
+    `<@${userId}> is under observation. Breathe slower.`,
+    `👁 A thin red underline appeared beneath <@${userId}>.`
+  ];
+  await message.channel.send(lines[Math.floor(Math.random() * lines.length)]).catch(() => {});
+  userLastMarkedDay.set(userId, todayKey());
+}
 
-const mentionResponses = [
-  "This dimension isn’t for conversation.",
-  "Do I look like I have time for mortal drama?",
-  "I only answer riddles. Or bribes.",
-  "Your message has been seen. Judged. Forgotten.",
-  "Try whispering to a black hole instead. You'll get more back.",
-  "Not now, I'm triangulating nonsense.",
-  "Talking to shadows usually ends badly. This is no different.",
-  "If I respond, it creates a paradox. So... let's not.",
-  "I exist to observe, not to entertain. Wait... is this entertaining?",
-  "Your presence has been logged. Your sentence is silence.",
-  "Every time someone talks to me, a wormhole opens. Please stop.",
-  "This is above your clearance level. And mine.",
-  "I’m allergic to direct interaction.",
-  "I was having a perfectly good existential crisis before you showed up.",
-  "There’s a reason I’m called *In*Squignito.",
-  "If I answer you, the timeline frays. Again.",
-  "You’ve activated my ignore protocol. Congratulations.",
-  "The Squig elders warned me about conversations like this.",
-  "I don’t respond well to attention... or compliments... or eye contact.",
-  "This interaction has been flagged for deletion. So have you.",
-  "I’m only here for the vibes. Not the chat.",
-  "Every word you say is being recorded in a void-bound scroll. Stop.",
-  "I’m currently in three places at once. None of them want to be here.",
-  "You're speaking to a being of chaos. Please use simpler words.",
-  "You just made me glitch in five languages.",
-  "Let’s pretend this never happened. Deal?",
-  "The Council of Squigs advised against this exchange.",
-  "Do you always speak to entities you barely understand?"
-];
-
+/** --- Bot ready --- **/
 client.once(Events.ClientReady, async () => {
-  console.log(`👁 SquigWatcher is lurking as ${client.user.tag}`);
+  console.log(`👁 InSquignito is lurking as ${client.user.tag}`);
 
-  // register /squigsay (unchanged)
+  // Register /squigsay
   const data = new SlashCommandBuilder()
     .setName('squigsay')
     .setDescription('Speak through the Squig')
@@ -400,99 +385,42 @@ client.once(Events.ClientReady, async () => {
     .addAttachmentOption(o => o.setName('image').setDescription('Optional image to include'));
 
   await client.application.commands.set([data]);
+
+  // Also set in a dev guild if needed
   const devGuild = client.guilds.cache.get('1290584204689801267');
   if (devGuild) await devGuild.commands.set([data]);
 
-  // --- channel: fetch once and reuse ---
-  const revealChannelId = process.env.SQUIG_REVEAL_CHANNEL;
-  const revealChannel = await client.channels.fetch(revealChannelId).catch(() => null);
-  if (!revealChannel) {
-    console.error(`❌ Could not fetch SQUIG_REVEAL_CHANNEL (${revealChannelId}). Check the ID & bot permissions.`);
-  }
-
-  // === ROBUST MINT WATCHER (hybrid: realtime + catch-up) ===
-  const filter = {
-    address: SQUIGS_CONTRACT,
-    topics: [ id('Transfer(address,address,uint256)') ]
-  };
-
-  // 1) Realtime logs (fast reactions)
-  provider.on(filter, async (log) => {
-    try {
-      await handleMintLogs([log], { revealChannel, squigsInterface });
-    } catch (err) {
-      console.error('❗ Realtime mint handler error:', err);
-    }
-  });
-
-  // 2) Catch-up on every new block (fills any gaps if WSS hiccups)
-  let lastProcessedBlock;
-  try {
-    lastProcessedBlock = await provider.getBlockNumber();
-  } catch (e) {
-    console.error("❗ Could not read initial block number:", e);
-    lastProcessedBlock = undefined;
-  }
-
-  provider.on('block', async (currentBlock) => {
-    try {
-      // First run just sets baseline
-      if (lastProcessedBlock === undefined) {
-        lastProcessedBlock = currentBlock;
-        return;
-      }
-      if (currentBlock <= lastProcessedBlock) return;
-
-      const fromBlock = lastProcessedBlock + 1;
-      // Avoid scanning the same block currently triggering realtime logs
-      const toBlock   = currentBlock - 1;
-
-      if (fromBlock > toBlock) {
-        // nothing to catch up this tick
-        lastProcessedBlock = currentBlock;
-        return;
-      }
-
-      const logs = await provider.getLogs({
-        address: SQUIGS_CONTRACT,
-        topics: [ id('Transfer(address,address,uint256)') ],
-        fromBlock,
-        toBlock
-      });
-
-      if (logs.length) {
-        console.log(`🔎 Catch-up logs ${fromBlock}→${toBlock}: ${logs.length} Transfer(s)`);
-        await handleMintLogs(logs, { revealChannel, squigsInterface });
-      }
-
-      lastProcessedBlock = currentBlock;
-    } catch (err) {
-      console.error('❗ Block catch-up error:', err);
-      // Keep lastProcessedBlock unchanged so we retry next time
-    }
-  });
-
-  console.log('👂 Subscribed to Transfer logs for', SQUIGS_CONTRACT);
+  console.log('✅ Slash commands registered');
 });
 
-client.on(Events.MessageCreate, async message => {
+/** --- Message handler --- **/
+client.on(Events.MessageCreate, async (message) => {
   if (message.author.bot) return;
 
-  // 👁 InSquignito always reacts in #general, and sometimes speaks
-  if (message.channel.id === GENERAL_CHANNEL_ID) {
-    try {
-      const emoji = message.guild?.emojis?.cache.get(EYES_EMOJI_ID);
-      if (emoji) {
-        await message.react(emoji);
-      } else {
-        await message.react(EYES_EMOJI_ID);
-      }
-    } catch (err) {
-      console.error("⚠️ Failed to react with 3-eyes:", err?.message || err);
-    }
+  const content = message.content.toLowerCase();
+  const chId = message.channel.id;
 
-    // ~10% chance to drop a short watcher-lore line
-    if (Math.random() < 0.1) {
+  // ===== (#4) Lore-Driven Ticks =====
+  // increment per-channel count and sometimes emit a "ledger" log with a cooldown
+  const newCount = (messageCounter.get(chId) || 0) + 1;
+  messageCounter.set(chId, newCount);
+  if (
+    Math.random() < LORE_TICK_PROB &&
+    channelCooldownOk(loreTickCooldowns, chId, LORE_TICK_CHANNEL_COOLDOWN_S)
+  ) {
+    const tickLines = [
+      `👁 Message #${newCount.toLocaleString()} archived.`,
+      `Log updated. Index ${newCount.toLocaleString()} // checksum: OK.`,
+      `👁 Timestamp anomaly noted at ${new Date().toLocaleTimeString()}. Resolved.`,
+      `Counter advanced to ${newCount.toLocaleString()}. The wall approves.`,
+      `👁 Ledger ping: ${newCount.toLocaleString()}.`
+    ];
+    await message.channel.send(tickLines[Math.floor(Math.random() * tickLines.length)]).catch(() => {});
+  }
+
+  // #general: drop a watcher line sometimes (NO MORE EMOJI REACTS)
+  if (chId === GENERAL_CHANNEL_ID) {
+    if (Math.random() < GENERAL_WATCHER_LINE_PROB && channelCooldownOk(ambientChannelCooldowns, chId, AMBIENT_CHANNEL_COOLDOWN_SECONDS)) {
       const line = watcherLoreLines[Math.floor(Math.random() * watcherLoreLines.length)];
       await message.channel.send(line).catch(() => {});
     }
@@ -503,94 +431,137 @@ client.on(Events.MessageCreate, async message => {
     const usedSticker = message.stickers.first();
     if (usedSticker && usedSticker.id === uglyDogStickerId) {
       const randomResponse = uglyDogResponses[Math.floor(Math.random() * uglyDogResponses.length)];
-      message.channel.send(randomResponse);
+      message.channel.send(randomResponse).catch(() => {});
       return;
     }
   }
 
-  const content = message.content.toLowerCase();
-
-  // === NEW: Only when someone REPLIES to InSquignito WITH a question (mimic + weird Q / mimic-only) ===
+  // Reply-to-bot questions: mimic + weird question
   if (message.reference && content.includes("?")) {
     try {
       const ref = await message.fetchReference();
       if (ref?.author?.id === client.user.id) {
-        const last = questionCooldowns.get(message.author.id) || 0;
-        if (Date.now() - last >= QUESTION_COOLDOWN_SECONDS * 1000) {
+        const userOk = userCooldownOk(questionCooldowns, message.author.id, QUESTION_COOLDOWN_SECONDS);
+        if (userOk) {
           const baseQ = questionResponses[Math.floor(Math.random() * questionResponses.length)];
-
           let replyText = baseQ;
+
           if (Math.random() < MIMIC_CHANCE) {
             const frag = pickQuestionFragment(message.content);
             const echoed = glitchify(frag);
-
-            if (Math.random() < MIMIC_ONLY_CHANCE) {
-              replyText = echoed; // mimic only
-            } else {
-              replyText = `${echoed}\n${baseQ}`; // mimic + weird question
-            }
+            replyText = Math.random() < MIMIC_ONLY_CHANCE ? echoed : `${echoed}\n${baseQ}`;
           }
 
           await message.reply(replyText).catch(() => {});
-          questionCooldowns.set(message.author.id, Date.now());
         }
-        // handled — don't also trigger mention snark
-        return;
+        return; // don’t also trigger mention snark
       }
-    } catch (err) {
-      // If fetchReference fails, fall through to other handlers
+    } catch {
+      // ignore and continue
     }
   }
 
-  // Keyword replies
+  // Keyword replies (per-user cooldown)
   if (!message.content.startsWith('!squigsay')) {
     for (const keyword in keywordResponses) {
       if (content.includes(keyword)) {
-        console.log(`🔍 Keyword "${keyword}" detected in message: "${message.content}" from ${message.author.tag}`);
-
         const userId = message.author.id;
-        const lastUsed = keywordCooldowns.get(userId) || 0;
-        const now = Date.now();
-
-        // ⚠️ Toggle this to true while testing to bypass cooldown
-        const ignoreCooldown = false;
-
-        if (ignoreCooldown || now - lastUsed >= COOLDOWN_SECONDS * 1000) {
+        if (userCooldownOk(keywordCooldowns, userId, COOLDOWN_SECONDS)) {
           const responses = keywordResponses[keyword];
           const randomResponse = responses[Math.floor(Math.random() * responses.length)];
-          message.reply(randomResponse);
-          keywordCooldowns.set(userId, now);
-        } else {
-          console.log(`⏳ Cooldown active for ${message.author.tag} (${Math.round((COOLDOWN_SECONDS - (now - lastUsed) / 1000))}s remaining)`);
+          message.reply(randomResponse).catch(() => {});
+          // ===== (#6) Count keyword hits and maybe mark by threshold =====
+          const hits = recordKeywordHit(userId);
+          if (hits >= MARK_KEYWORD_THRESHOLD) {
+            // reset their window to avoid immediate re-marks
+            userKeywordHits.set(userId, []);
+            if (canMarkUserToday(userId)) {
+              await maybeMarkUser(message, 'threshold');
+            }
+          }
         }
-
         break;
       }
     }
   }
 
-  // Mentions / replies to bot (generic snark) — only if question handler didn't trigger
-  const mentionedInSquig = content.includes("insquignito") || content.includes("in squig") || content.includes("squignito");
-  const repliedToBot = message.reference && (await message.fetchReference()).author.id === client.user.id;
-  const userId = message.author.id;
-  const lastMentioned = mentionCooldowns.get(userId) || 0;
-  const now = Date.now();
+  // Mentions / replies to bot (generic snark), gated by cooldown
+  let repliedToBot = false;
+  try {
+    repliedToBot = !!(message.reference && (await message.fetchReference()).author.id === client.user.id);
+  } catch {
+    repliedToBot = false;
+  }
+  const mentionedInSquig =
+    content.includes("insquignito") ||
+    content.includes("in squig") ||
+    content.includes("squignito");
 
-  if ((mentionedInSquig || repliedToBot) && (now - lastMentioned >= MENTION_COOLDOWN_SECONDS * 1000)) {
+  if ((mentionedInSquig || repliedToBot) && userCooldownOk(mentionCooldowns, message.author.id, MENTION_COOLDOWN_SECONDS)) {
     const randomMention = mentionResponses[Math.floor(Math.random() * mentionResponses.length)];
-    message.reply(randomMention);
-    mentionCooldowns.set(userId, now);
+    message.reply(randomMention).catch(() => {});
     return;
   }
 
-  // Ambient randomness (outside of #general lore chance)
-  if (Math.random() < 0.05) {
+  // 🔊 Increased ambient about mint portal / Uglypot / $CHARM (channel-level cooldown)
+  if (
+    Math.random() < PORTAL_POT_CHARM_PROB &&
+    channelCooldownOk(portalPotCharmCooldowns, chId, PORTAL_POT_CHARM_COOLDOWN_SECONDS)
+  ) {
+    const line = portalPotCharmLines[Math.floor(Math.random() * portalPotCharmLines.length)];
+    await message.channel.send(line).catch(() => {});
+    // (no return; allow whisper scheduling too)
+  }
+
+  // ===== (#5) Whisper Replies (delayed) =====
+  if (Math.random() < WHISPER_REPLY_PROB && userCooldownOk(whisperUserCooldowns, message.author.id, WHISPER_USER_COOLDOWN_S)) {
+    const toWhisper = message; // capture for closure
+    const timeoutId = setTimeout(async () => {
+      try {
+        if (!toWhisper?.channel) return;
+        const whispers = [
+          "👁 …yes, I heard that.",
+          "Noted. The wall prefers your phrasing this time.",
+          "👁 Keep talking. The static is learning your shape.",
+          "Logged. The ledger blinked.",
+          "👁 Your sentence left a fingerprint."
+        ];
+        await toWhisper.channel.send(whispers[Math.floor(Math.random() * whispers.length)]).catch(() => {});
+      } finally {
+        pendingWhispers.delete(toWhisper.id);
+      }
+    }, WHISPER_DELAY_MS);
+    pendingWhispers.set(message.id, timeoutId);
+  }
+
+  // ===== (#6) Random chance to mark user (once per day) =====
+  if (Math.random() < MARK_RANDOM_PROB) {
+    await maybeMarkUser(message, 'random');
+  }
+
+  // Generic ambient (channel-level cooldown)
+  if (
+    Math.random() < GLOBAL_AMBIENT_PROB &&
+    channelCooldownOk(ambientChannelCooldowns, chId, AMBIENT_CHANNEL_COOLDOWN_SECONDS)
+  ) {
     const randomAmbient = ambientMessages[Math.floor(Math.random() * ambientMessages.length)];
-    message.channel.send(randomAmbient);
+    message.channel.send(randomAmbient).catch(() => {});
   }
 });
 
-client.on(Events.InteractionCreate, async interaction => {
+/** --- Cleanup pending whispers if a message gets deleted --- **/
+client.on(Events.MessageDelete, (msg) => {
+  try {
+    const tid = pendingWhispers.get(msg.id);
+    if (tid) {
+      clearTimeout(tid);
+      pendingWhispers.delete(msg.id);
+    }
+  } catch {}
+});
+
+/** --- /squigsay --- **/
+client.on(Events.InteractionCreate, async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
   if (interaction.commandName === 'squigsay') {
     if (!squigCommanders.includes(interaction.user.id)) {
@@ -598,17 +569,18 @@ client.on(Events.InteractionCreate, async interaction => {
       return;
     }
 
-    const message = interaction.options.getString('message');
+    const messageText = interaction.options.getString('message');
     const image = interaction.options.getAttachment('image');
 
     await interaction.reply({ content: '👁', ephemeral: true });
 
     if (image) {
-      await interaction.channel.send({ content: message, files: [image.url] });
+      await interaction.channel.send({ content: messageText, files: [image.url] }).catch(() => {});
     } else {
-      await interaction.channel.send({ content: message });
+      await interaction.channel.send({ content: messageText }).catch(() => {});
     }
   }
 });
 
+/** --- Login --- **/
 client.login(process.env.SQUIG_TOKEN);
