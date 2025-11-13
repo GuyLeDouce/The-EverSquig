@@ -17,32 +17,32 @@ const client = new Client({
 
 client.commands = new Collection();
 
-/** --- Config (tweak as desired) --- **/
+/** --- Config (tamed version) --- **/
 const GENERAL_CHANNEL_ID = '1290587398778126418';
 
 // Who can use /squigsay
 const squigCommanders = ['826581856400179210', '1288107772248064044'];
 
-// Cooldowns
-const COOLDOWN_SECONDS = 300;                  // per-user keyword cooldown
-const QUESTION_COOLDOWN_SECONDS = 45;          // per-user "question" cooldown
-const MENTION_COOLDOWN_SECONDS = 120;          // per-user mention snark cooldown
-const AMBIENT_CHANNEL_COOLDOWN_SECONDS = 180;  // per-channel ambient cooldown
-const PORTAL_POT_CHARM_COOLDOWN_SECONDS = 240; // per-channel special ambient cooldown
+// Cooldowns (more relaxed)
+const COOLDOWN_SECONDS = 900;                   // per-user keyword cooldown (was 300)
+const QUESTION_COOLDOWN_SECONDS = 120;          // per-user "question" cooldown (was 45)
+const MENTION_COOLDOWN_SECONDS = 300;           // per-user mention snark cooldown (was 120)
+const AMBIENT_CHANNEL_COOLDOWN_SECONDS = 600;   // per-channel ambient cooldown (was 180)
+const PORTAL_POT_CHARM_COOLDOWN_SECONDS = 900;  // per-channel special ambient cooldown (was 240)
 
-// Probabilities (0–1)
-const GENERAL_WATCHER_LINE_PROB = 0.12; // chance to drop a short watcher line in #general
-const GLOBAL_AMBIENT_PROB = 0.10;       // chance for a generic ambient line anywhere
-const PORTAL_POT_CHARM_PROB = 0.10;     // chance for special mint-portal / Uglypot / $CHARM line anywhere
+// Probabilities (0–1) – reduced so he talks less often
+const GENERAL_WATCHER_LINE_PROB = 0.04; // was 0.12
+const GLOBAL_AMBIENT_PROB = 0.03;       // was 0.10
+const PORTAL_POT_CHARM_PROB = 0.04;     // was 0.10
 
-// ===== NEW (#4/#5/#6) tuning =====
-const LORE_TICK_PROB = 0.06;                           // chance to emit a lore-driven "ledger" tick on a message
-const LORE_TICK_CHANNEL_COOLDOWN_S = 420;              // per-channel cooldown for ticks
-const WHISPER_REPLY_PROB = 0.07;                       // chance to schedule a delayed whisper reply
+// ===== NEW (#4/#5/#6) tuning (tamed) =====
+const LORE_TICK_PROB = 0.02;                           // was 0.06
+const LORE_TICK_CHANNEL_COOLDOWN_S = 1200;             // was 420 (~20 min per channel)
+const WHISPER_REPLY_PROB = 0.02;                       // was 0.07
 const WHISPER_DELAY_MS = 30_000;                       // ~30s delay for whispers
-const WHISPER_USER_COOLDOWN_S = 600;                   // per-user cooldown for whispers
-const MARK_RANDOM_PROB = 0.01;                         // small chance to mark a user on any message
-const MARK_KEYWORD_THRESHOLD = 3;                      // mark after N keyword hits in a rolling window
+const WHISPER_USER_COOLDOWN_S = 1800;                  // per-user cooldown for whispers (was 600)
+const MARK_RANDOM_PROB = 0.003;                        // small random mark chance (was 0.01)
+const MARK_KEYWORD_THRESHOLD = 5;                      // mark after N keyword hits (was 3)
 const MARK_KEYWORD_WINDOW_MS = 6 * 60 * 60 * 1000;     // 6h window for threshold
 const MARK_ONCE_PER_DAY = true;                        // mark a user at most once per day
 
@@ -50,7 +50,7 @@ const MARK_ONCE_PER_DAY = true;                        // mark a user at most on
 const keywordCooldowns = new Map();        // userId -> ts
 const questionCooldowns = new Map();       // userId -> ts
 const mentionCooldowns = new Map();        // userId -> ts
-const ambientChannelCooldowns = new Map(); // channelId -> ts (generic ambient)
+const ambientChannelCooldowns = new Map(); // channelId -> ts (generic ambient + general watcher)
 const portalPotCharmCooldowns = new Map(); // channelId -> ts (special ambient)
 const loreTickCooldowns = new Map();       // channelId -> ts  (#4)
 const messageCounter = new Map();          // channelId -> incrementing count (#4)
@@ -276,16 +276,18 @@ const keywordResponses = {
     "Every time you say Squig, another file corrupts—beautifully."
   ],
   // Tie "mint" into portal / Uglypot / $CHARM
-  mint: [
-    "👁 The portal is open. Step through or keep pretending you don’t hear it.",
-    "Each paid mint fattens the Uglypot. It’s already licking its lips.",
-    "The Squigs tally $CHARM like a choir counts breaths.",
-    "👁 If you hesitate, the portal memorizes your fear.",
-    "Mint once for noise. Mint twice for signal.",
-    "The Uglypot gurgled. That’s your cue.",
-    "👁 $CHARM flutters when you hover over the button.",
-    "Minting starts a story your reflection can’t finish."
-  ],
+mint: [
+  "👁 The Prize Portal spins every time you mint. Some doors don’t reopen.",
+  "Every mint triggers a Portal Prize. Tiny spark or massive hit — the portal decides.",
+  "The Portal doesn’t do ‘maybe.’ It pays out every single time someone steps through.",
+  "👁 That click you heard? A Squig just yanked a reward out of the Prize Portal for you.",
+  "Each mint throws your wallet into the prize pool for a heartbeat. It never comes out empty.",
+  "Portal Prizes shuffle $CHARM, NFTs, and boosts like a stacked deck. You’re the card it draws.",
+  "👁 Some pull $CHARM. Some pull grails. All leave fingerprints on the Portal.",
+  "Every time you mint, a Squig pulls a lever behind the scenes. The prize that drops is random.",
+  "👁 The Prize Portal is hungrier than the Uglypot ever was. Fortunately, it tips well."
+],
+
   gm: [
     "👁 Good morning, if that’s what you call this glitch in time.",
     "GM? Squigs prefer *Ugly Dawn.*",
@@ -401,7 +403,6 @@ client.on(Events.MessageCreate, async (message) => {
   const chId = message.channel.id;
 
   // ===== (#4) Lore-Driven Ticks =====
-  // increment per-channel count and sometimes emit a "ledger" log with a cooldown
   const newCount = (messageCounter.get(chId) || 0) + 1;
   messageCounter.set(chId, newCount);
   if (
@@ -466,6 +467,12 @@ client.on(Events.MessageCreate, async (message) => {
     for (const keyword in keywordResponses) {
       if (content.includes(keyword)) {
         const userId = message.author.id;
+
+        // Special extra gate for GM spam: only respond ~40% of the time
+        if (keyword === 'gm' && Math.random() > 0.4) {
+          continue; // skip GM response this time, check next keyword (if any)
+        }
+
         if (userCooldownOk(keywordCooldowns, userId, COOLDOWN_SECONDS)) {
           const responses = keywordResponses[keyword];
           const randomResponse = responses[Math.floor(Math.random() * responses.length)];
@@ -503,7 +510,7 @@ client.on(Events.MessageCreate, async (message) => {
     return;
   }
 
-  // 🔊 Increased ambient about mint portal / Uglypot / $CHARM (channel-level cooldown)
+  // 🔊 Ambient about mint portal / Uglypot / $CHARM (channel-level cooldown)
   if (
     Math.random() < PORTAL_POT_CHARM_PROB &&
     channelCooldownOk(portalPotCharmCooldowns, chId, PORTAL_POT_CHARM_COOLDOWN_SECONDS)
