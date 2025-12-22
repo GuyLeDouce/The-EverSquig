@@ -4,7 +4,8 @@ const {
   GatewayIntentBits,
   Events,
   SlashCommandBuilder,
-  Collection
+  Collection,
+  PermissionFlagsBits
 } = require('discord.js');
 
 const client = new Client({
@@ -22,6 +23,23 @@ const GENERAL_CHANNEL_ID = '1290587398778126418';
 
 // Who can use /squigsay
 const squigCommanders = ['826581856400179210', '1288107772248064044'];
+
+// ===== Scam tripwire (quiet mod assist) =====
+// OPTIONAL: set this to your staff/mod alert channel ID. If null/empty, tripwire logs to console only.
+const MOD_ALERT_CHANNEL_ID = process.env.MOD_ALERT_CHANNEL_ID || ''; // e.g. '123456789012345678'
+const TRIPWIRE_COOLDOWN_S = 300; // per-user cooldown so one person can't spam alerts
+
+// Domain allowlist (true sources you trust)
+const SAFE_DOMAINS = new Set([
+  'squigs.io',
+  'www.squigs.io',
+  'uglydex.xyz',
+  'www.uglydex.xyz',
+  'discord.gg',
+  'www.discord.gg',
+  'discord.com',
+  'www.discord.com'
+]);
 
 // Cooldowns
 const COOLDOWN_SECONDS = 900;                   // per-user keyword cooldown
@@ -80,6 +98,9 @@ const channelLastBotSpeak = new Map();     // channelId -> ts
 const channelLastHumanMsg = new Map();     // channelId -> ts
 const channelMood = new Map();             // channelId -> { mood, untilTs }
 
+// Tripwire cooldown
+const tripwireCooldowns = new Map();       // userId -> ts
+
 /** --- “Reply to a reply-with-question” system (mimic + weird Q) --- **/
 const questionResponses = [
   "👁 Why do you assume I know? Tell me—what color does silence taste like?",
@@ -119,7 +140,6 @@ function glitchify(fragment) {
 }
 
 /** --- Lore pools --- **/
-
 const watcherLoreLines = [
   "I'm a Squig... and I'm always watching.",
   "👁 You think you're alone in here? Cute.",
@@ -299,7 +319,7 @@ function setMood(chId, mood, durationMs) {
 }
 
 function looksLikeQuestion(raw) {
-  const t = raw.toLowerCase();
+  const t = (raw || '').toLowerCase();
   return (
     t.includes('?') ||
     /^(how|what|why|where|when|who|can|should|do|is|are)\b/.test(t.trim())
@@ -307,7 +327,7 @@ function looksLikeQuestion(raw) {
 }
 
 function contentHasPortalSignals(raw) {
-  const t = raw.toLowerCase();
+  const t = (raw || '').toLowerCase();
   return /(mint|portal|uglypot|\$charm|charm\b|price|fcfs|allowlist)/.test(t);
 }
 
@@ -352,7 +372,7 @@ async function maybeMarkUser(message, reason = 'observed') {
 
 /** --- Weird Help Brain (help-first mentions) --- **/
 function detectHelpTopic(raw) {
-  const t = raw.toLowerCase();
+  const t = (raw || '').toLowerCase();
   if (/(wallet|verify|verification|link|connect|address|metamask|coinbase wallet)/.test(t)) return 'wallet';
   if (/(mint|portal|uglypot|\$charm|charm\b|price|fcfs|allowlist)/.test(t)) return 'mint';
   if (/(uglydex|points|leaderboard|\blb\b|rank|card|cards|badge|badges)/.test(t)) return 'uglydex';
@@ -417,7 +437,8 @@ function helpHeader(topic) {
   const headers = {
     mint: "👁 **MINT PROTOCOL: SQUIGS**",
     uglydex: "👁 **UGLYDEX FIELD GUIDE**",
-    commands: "👁 **COMMAND CATALOG (DO NOT FEED AFTER MIDNIGHT)**"
+    commands: "👁 **COMMAND CATALOG (DO NOT FEED AFTER MIDNIGHT)**",
+    translate: "👁 **LORE TRANSLATOR**"
   };
   return headers[topic] || "👁 **HELP (SUSPICIOUSLY LEGIT)**";
 }
@@ -482,11 +503,195 @@ function formatHelp(topic) {
   ].join("\n");
 }
 
+/** --- Lore Translator --- **/
+function sanitizeForTranslator(input) {
+  return (input || '').replace(/```[\s\S]*?```/g, '').trim();
+}
+
+function humanToLore(text) {
+  const t = sanitizeForTranslator(text);
+  if (!t) return "👁 …I can’t translate empty air. Give me words.";
+
+  // soft substitutions (keep meaning)
+  const swaps = [
+    [/wallet/gi, "vault-skin"],
+    [/ethereum/gi, "the Ether River"],
+    [/\beth\b/gi, "Ether-dust"],
+    [/\bmint(ing)?\b/gi, "step through the portal"],
+    [/verify|verification/gi, "ritual-verify"],
+    [/discord/gi, "the chat-hive"],
+    [/link(ed)?/gi, "bind"],
+    [/error/gi, "glitch-scar"],
+    [/help/gi, "guidance"]
+  ];
+
+  let out = t;
+  for (const [re, rep] of swaps) out = out.replace(re, rep);
+
+  // add Squig cadence, but keep accuracy
+  const prefixes = [
+    "👁 Translation complete. Meaning preserved. Vibe corrupted:",
+    "👁 I ran your sentence through the static. It returned like this:",
+    "👁 The wall approves this phrasing:",
+    "👁 Your human words, wearing Squig clothes:"
+  ];
+
+  const postfixes = [
+    "— end of transmission.",
+    "— keep it ugly.",
+    "— do not feed the portal after midnight.",
+    "— the ledger has logged your tone."
+  ];
+
+  // small, controlled glitch
+  if (Math.random() < 0.35) out = out.replace(/\s+/g, ' … ');
+
+  return `${pick(prefixes)}\n> ${out}\n${pick(postfixes)}`;
+}
+
+function loreToHuman(text) {
+  const t = sanitizeForTranslator(text);
+  if (!t) return "I can’t translate empty static. Paste the lore.";
+
+  // reverse-ish substitutions (best effort)
+  const swaps = [
+    [/vault-skin/gi, "wallet"],
+    [/the ether river/gi, "Ethereum"],
+    [/ether-dust/gi, "ETH"],
+    [/step through the portal/gi, "mint"],
+    [/ritual-verify/gi, "verify"],
+    [/chat-hive/gi, "Discord"],
+    [/\bbind\b/gi, "link"],
+    [/glitch-scar/gi, "error"],
+    [/\bguidance\b/gi, "help"],
+    [/ledger/gi, "system log"],
+    [/static/gi, "noise"]
+  ];
+
+  let out = t;
+  for (const [re, rep] of swaps) out = out.replace(re, rep);
+
+  // remove extra squig punctuation, keep meaning
+  out = out.replace(/👁/g, '').replace(/\s+…\s+/g, ' ').trim();
+
+  const prefixes = [
+    "Human translation:",
+    "Okay. In normal words:",
+    "De-lored. Here you go:",
+    "Plain-English output:"
+  ];
+
+  return `${pick(prefixes)}\n> ${out}`;
+}
+
+/** --- Scam tripwire --- **/
+function extractDomains(text) {
+  const t = (text || '').toLowerCase();
+
+  // Match http(s)://... or bare domains like squigs.io/whatever
+  const urlLike = t.match(/(?:https?:\/\/)?(?:www\.)?[a-z0-9.-]+\.[a-z]{2,}(?:\/[^\s]*)?/g) || [];
+  const domains = [];
+
+  for (const u of urlLike) {
+    try {
+      const withProto = u.startsWith('http') ? u : `https://${u}`;
+      const parsed = new URL(withProto);
+      domains.push(parsed.hostname.toLowerCase());
+    } catch {
+      // ignore
+    }
+  }
+  return [...new Set(domains)];
+}
+
+function looksLikeSeedPhraseLeak(text) {
+  const t = (text || '').toLowerCase();
+
+  // explicit phrases
+  if (/(seed phrase|recovery phrase|mnemonic|private key|secret key)/.test(t)) return true;
+
+  // attempt at 12+ words pattern (avoid false positives by requiring crypto context)
+  const words = t.replace(/[^a-z\s]/g, ' ').split(/\s+/).filter(Boolean);
+  const hasCryptoContext = /(wallet|metamask|phrase|seed|private|key|mnemonic|recovery)/.test(t);
+  if (!hasCryptoContext) return false;
+
+  if (words.length >= 12) {
+    // if a line is mostly words (not a sentence), flag it
+    const lettersOnlyRatio = words.join('').length / Math.max(1, (text || '').replace(/\s/g, '').length);
+    if (lettersOnlyRatio > 0.75) return true;
+  }
+
+  return false;
+}
+
+function looksLikeImpersonationOrDMScam(text) {
+  const t = (text || '').toLowerCase();
+  return /(dm me|dm you|check your dm|message me|support team|admin here|mod here|verify here|airdrop|free mint|claim now|limited time|connect your wallet)/.test(t);
+}
+
+function hasSuspiciousDomain(domains) {
+  if (!domains.length) return false;
+
+  // If it contains known safe domains only, it's fine
+  // If it contains anything else, we evaluate suspiciousness:
+  // - punycode (xn--)
+  // - homograph-ish with "squigs" / "uglydex" but not exact
+  // - shorteners
+  const badIndicators = new Set(['bit.ly', 'tinyurl.com', 't.co', 'cutt.ly', 'rebrand.ly', 'goo.su']);
+
+  for (const d of domains) {
+    if (SAFE_DOMAINS.has(d)) continue;
+
+    if (d.startsWith('xn--')) return true;
+    if (badIndicators.has(d)) return true;
+
+    // "looks like" squigs or uglydex but not exact
+    if ((d.includes('squigs') && d !== 'squigs.io' && d !== 'www.squigs.io') ||
+        (d.includes('uglydex') && d !== 'uglydex.xyz' && d !== 'www.uglydex.xyz')) {
+      return true;
+    }
+
+    // any unknown domain posted alongside DM-scam language is suspicious
+    return true;
+  }
+
+  return false;
+}
+
+async function sendTripwireAlert(message, reason, domains = []) {
+  if (!userCooldownOk(tripwireCooldowns, message.author.id, TRIPWIRE_COOLDOWN_S)) return;
+
+  const payload = [
+    "🚨 **InSquignito Tripwire**",
+    `**Reason:** ${reason}`,
+    `**User:** <@${message.author.id}>`,
+    `**Channel:** <#${message.channel.id}>`,
+    `**Message Link:** ${message.url}`,
+    domains.length ? `**Domains:** ${domains.join(', ')}` : null,
+    "",
+    "👁 Suggested action: verify link safety / warn user / remove if needed."
+  ].filter(Boolean).join("\n");
+
+  if (MOD_ALERT_CHANNEL_ID) {
+    const ch = message.guild?.channels?.cache?.get(MOD_ALERT_CHANNEL_ID);
+    if (ch && ch.isTextBased()) {
+      await ch.send(payload).catch(() => {});
+      return;
+    }
+  }
+
+  // fallback to console if no mod channel configured
+  console.log(payload);
+}
+
+/** --- /insquig help content --- **/
+/** (keep existing) **/
+
 /** --- Bot ready --- **/
 client.once(Events.ClientReady, async () => {
   console.log(`👁 InSquignito is lurking as ${client.user.tag}`);
 
-  // Register slash commands: /squigsay and /insquig
+  // Register slash commands: /squigsay and /insquig (help + translate)
   const squigsay = new SlashCommandBuilder()
     .setName('squigsay')
     .setDescription('Speak through the Squig')
@@ -511,6 +716,33 @@ client.once(Events.ClientReady, async () => {
               { name: 'commands', value: 'commands' }
             )
         )
+    )
+    .addSubcommand(sc =>
+      sc
+        .setName('translate')
+        .setDescription('Translate between Human and Lore')
+        .addStringOption(o =>
+          o
+            .setName('direction')
+            .setDescription('Pick a direction')
+            .setRequired(true)
+            .addChoices(
+              { name: 'Human → Lore', value: 'h2l' },
+              { name: 'Lore → Human', value: 'l2h' }
+            )
+        )
+        .addStringOption(o =>
+          o
+            .setName('text')
+            .setDescription('Text to translate')
+            .setRequired(true)
+        )
+        .addBooleanOption(o =>
+          o
+            .setName('private')
+            .setDescription('Send only to you (recommended)')
+            .setRequired(false)
+        )
     );
 
   await client.application.commands.set([squigsay, insquig]);
@@ -534,6 +766,25 @@ client.on(Events.MessageCreate, async (message) => {
   const prevHuman = channelLastHumanMsg.get(chId) || 0;
   channelLastHumanMsg.set(chId, Date.now());
 
+  // Scam tripwire (quiet): detect suspicious content and alert mods
+  try {
+    const domains = extractDomains(raw);
+    const seed = looksLikeSeedPhraseLeak(raw);
+    const dmScam = looksLikeImpersonationOrDMScam(raw);
+    const suspiciousDomain = hasSuspiciousDomain(domains);
+
+    // trigger logic (conservative, avoids false positives)
+    if (seed) {
+      await sendTripwireAlert(message, "Possible seed phrase / private key leak", domains);
+    } else if (dmScam && suspiciousDomain) {
+      await sendTripwireAlert(message, "Possible DM scam + suspicious link", domains);
+    } else if (suspiciousDomain && /(mint|airdrop|claim|connect|verify|wallet)/.test(content)) {
+      await sendTripwireAlert(message, "Suspicious link in crypto context", domains);
+    }
+  } catch {
+    // ignore tripwire failures
+  }
+
   // Compute & adjust mood (wakes up sometimes)
   if (Date.now() - prevHuman >= CHANNEL_WAKE_INACTIVITY_MS) {
     setMood(chId, MOOD_CURIOUS, MOOD_CURIOUS_MS);
@@ -545,18 +796,14 @@ client.on(Events.MessageCreate, async (message) => {
   }
 
   // Anti-pile-on per-message flag: only ONE automatic output per incoming message.
-  // (Direct slash commands are handled elsewhere.)
   let spokeThisMessage = false;
 
   // Helper to safely speak (prevents pile-on + guardrail for ambient)
   async function speak({ kind, fn }) {
-    // kind: 'direct' (replies users) or 'ambient' (ticks/lines/marks/portal/whispers)
     if (spokeThisMessage) return false;
-
     if (kind === 'ambient') {
       if (!canAmbientSpeak(chId)) return false;
     }
-
     try {
       await fn();
       spokeThisMessage = true;
@@ -606,7 +853,7 @@ client.on(Events.MessageCreate, async (message) => {
             }
           });
         }
-        return; // don’t also trigger mention logic
+        return;
       }
     } catch {
       // ignore
@@ -620,17 +867,13 @@ client.on(Events.MessageCreate, async (message) => {
         const userId = message.author.id;
 
         // GM gate: respond only ~40% of the time
-        if (keyword === 'gm' && Math.random() > 0.4) {
-          break;
-        }
+        if (keyword === 'gm' && Math.random() > 0.4) break;
 
         if (userCooldownOk(keywordCooldowns, userId, COOLDOWN_SECONDS)) {
-          const randomResponse = pick(keywordResponses[keyword]);
-
           await speak({
             kind: 'direct',
             fn: async () => {
-              await message.reply(randomResponse).catch(() => {});
+              await message.reply(pick(keywordResponses[keyword])).catch(() => {});
             }
           });
 
@@ -660,20 +903,19 @@ client.on(Events.MessageCreate, async (message) => {
   } catch {
     repliedToBot = false;
   }
+
   const mentionedInSquig =
     content.includes("insquignito") ||
     content.includes("in squig") ||
     content.includes("squignito");
 
   if ((mentionedInSquig || repliedToBot) && userCooldownOk(mentionCooldowns, message.author.id, MENTION_COOLDOWN_SECONDS)) {
-    // Help-first (direct). If it speaks, it consumes the one output.
     const helped = await maybeHelpfulReply(message);
     if (helped) {
-      spokeThisMessage = true; // maybeHelpfulReply already spoke
+      spokeThisMessage = true;
       return;
     }
 
-    // Otherwise rare gentle weirdness
     if (Math.random() < 0.25) {
       await speak({
         kind: 'direct',
@@ -689,7 +931,6 @@ client.on(Events.MessageCreate, async (message) => {
 
   // 5a) Channel wake line (earned: inactivity)
   if (!spokeThisMessage && Date.now() - prevHuman >= CHANNEL_WAKE_INACTIVITY_MS) {
-    // Only if not lurking (he "wakes")
     if (mood !== MOOD_LURK && channelCooldownOk(ambientChannelCooldowns, chId, AMBIENT_CHANNEL_COOLDOWN_SECONDS)) {
       await speak({
         kind: 'ambient',
@@ -750,7 +991,6 @@ client.on(Events.MessageCreate, async (message) => {
   // 5d) #general watcher line (earned: only when curious/active AND a milestone)
   if (!spokeThisMessage && chId === GENERAL_CHANNEL_ID) {
     const count = messageCounter.get(chId) || 0;
-    // "earned" mini-milestone that isn't too spammy (every 40 msgs)
     if (mood !== MOOD_LURK && count > 0 && count % 40 === 0) {
       if (channelCooldownOk(ambientChannelCooldowns, chId, AMBIENT_CHANNEL_COOLDOWN_SECONDS)) {
         await speak({
@@ -763,7 +1003,7 @@ client.on(Events.MessageCreate, async (message) => {
     }
   }
 
-  // 5e) Small ambient ping (earned: only if there was an attachment OR very long message) — only when curious/active
+  // 5e) Small ambient ping (earned: attachment OR very long message) — only when curious/active
   if (!spokeThisMessage && mood !== MOOD_LURK) {
     const hasAttachment = (message.attachments && message.attachments.size > 0);
     const isLong = raw.length >= 320;
@@ -778,16 +1018,14 @@ client.on(Events.MessageCreate, async (message) => {
     }
   }
 
-  /** 6) Whisper Replies (kept, but now suppressed by pile-on + guardrail) **/
+  /** 6) Whisper Replies (kept, but suppressed by pile-on + guardrail) **/
   if (!spokeThisMessage) {
     if (Math.random() < WHISPER_REPLY_PROB && userCooldownOk(whisperUserCooldowns, message.author.id, WHISPER_USER_COOLDOWN_S)) {
-      // Only schedule whispers when curious/active (feels intentional)
       if (mood !== MOOD_LURK && canAmbientSpeak(chId)) {
         const toWhisper = message;
         const timeoutId = setTimeout(async () => {
           try {
             if (!toWhisper?.channel) return;
-            // Don't whisper if the bot spoke very recently in that channel (extra guard)
             if (!canAmbientSpeak(chId)) return;
 
             const whispers = [
@@ -808,7 +1046,7 @@ client.on(Events.MessageCreate, async (message) => {
     }
   }
 
-  /** 7) Random chance to mark user (still rare; treated as ambient + guardrailed) **/
+  /** 7) Random chance to mark user (rare; ambient + guardrailed) **/
   if (!spokeThisMessage && Math.random() < MARK_RANDOM_PROB) {
     await speak({
       kind: 'ambient',
@@ -854,15 +1092,26 @@ client.on(Events.InteractionCreate, async (interaction) => {
     return;
   }
 
-  // /insquig help
+  // /insquig
   if (interaction.commandName === 'insquig') {
     const sub = interaction.options.getSubcommand();
+
     if (sub === 'help') {
       const topic = interaction.options.getString('topic', true);
       const text = formatHelp(topic);
-
-      // Non-ephemeral, in-channel
       await interaction.reply({ content: text }).catch(() => {});
+      return;
+    }
+
+    if (sub === 'translate') {
+      const direction = interaction.options.getString('direction', true);
+      const text = interaction.options.getString('text', true);
+      const isPrivate = interaction.options.getBoolean('private') ?? true;
+
+      const out = direction === 'h2l' ? humanToLore(text) : loreToHuman(text);
+
+      // Keep translator from cluttering channels by default
+      await interaction.reply({ content: out, ephemeral: !!isPrivate }).catch(() => {});
       return;
     }
   }
