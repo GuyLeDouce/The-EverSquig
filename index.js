@@ -317,7 +317,7 @@ if (topic === "uglydex") {
     "• Refresh once and give it a moment — indexing takes time, even in the Uglyverse.",
     "",
     "👁 UglyDex doesn’t guess, roleplay, or forget. If it’s recorded, it happened."
-  ].join(\"\\n\");
+  ].join("\n");
 }
 
   return [
