@@ -301,22 +301,24 @@ function formatHelp(topic) {
     ].join("\n");
   }
 
-  if (topic === "uglydex") {
-    return [
-      helpHeader(topic),
-      "",
-      `**UglyDex:** ${HELP_LINKS.uglydex}`,
-      "",
-      "**What it is:** where your Ugly lore becomes paperwork.",
-      "**Cards:** live on the UglyDex. If you’re looking for a card, you’re in the right dimension.",
-      "",
-      "**If something looks wrong:**",
-      "• Verify your wallet is linked to the correct address (see verification + /linkwallet below).",
-      "• Refresh and give it a minute — indexing moves at Squig reading speed.",
-      "",
-      "👁 The Dex is accurate. Your assumptions are the bug."
-    ].join("\n");
-  }
+if (topic === "uglydex") {
+  return [
+    helpHeader(topic),
+    "",
+    `**UglyDex:** ${HELP_LINKS.uglydex}`,
+    "",
+    "**What it is:** the collector hub and record keeper of Ugly Labs. UglyDex tracks your wallet-linked identity, NFTs, cards, badges, UglyPoints (UP), and your rank on the UglyBoard.",
+    "**Cards:** your Ugly Labs NFTs live here as collectible cards with trait-based UP values. Filter, search by token, sort by UP, and flip them into holographic form.",
+    "**Badges:** earned through collecting, participation, and events. Colored means earned. Hover to see requirements and UP value. Some are limited-time and never return.",
+    "**UglyBoard:** the global leaderboard ranking all connected holders by total UglyPoints.",
+    "",
+    "**If something looks wrong:**",
+    "• Confirm your wallet is linked to the correct address (see verification + /linkwallet below).",
+    "• Refresh once and give it a moment — indexing takes time, even in the Uglyverse.",
+    "",
+    "👁 UglyDex doesn’t guess, roleplay, or forget. If it’s recorded, it happened."
+  ].join(\"\\n\");
+}
 
   return [
     helpHeader(topic),
@@ -634,7 +636,7 @@ const weirdHelpfulResponses = {
   ],
   uglydex: [
     "👁 UglyDex/points looking off? Refresh once, then confirm your wallet is linked to the right address. The Dex doesn’t hallucinate — humans do.",
-    "Cards/badges are receipts. If you earned something and it didn’t show, ping mods with a screenshot + your wallet last 6 chars.",
+    "Cards/badges are receipts. If you earned something and it didn’t show, ping the mods",
     "Leaderboard logic: do the thing → get logged → points update. If the log didn’t catch it, we fix the log. The wall can be persuaded."
   ],
   troubleshoot: [
