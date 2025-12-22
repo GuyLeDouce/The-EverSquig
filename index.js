@@ -143,8 +143,8 @@ function glitchify(fragment) {
   if (!fragment) return '';
   let f = fragment;
   f = f.replace(/([aeiou])/gi, (m) => (Math.random() < 0.4 ? m + m : m));
-  if (Math.random() < 0.5) f = f.replace(/\s/g, ' … ');
-  const echo = Math.random() < 0.5 ? `“${f}…”` : `“${f}… ${f.split(' ')[0]}…”`;
+  if (Math.random() < 0.5) f = f.replace(/\s/g, ' ... ');
+  const echo = Math.random() < 0.5 ? `"${f}..."` : `"${f}... ${f.split(' ')[0]}..."`;
   return echo;
 }
 
@@ -301,27 +301,28 @@ function formatHelp(topic) {
     ].join("\n");
   }
 
-if (topic === "uglydex") {
-  return [
-    helpHeader(topic),
-    "",
-    `**UglyDex:** ${HELP_LINKS.uglydex}`,
-    "",
-    "**What it is:** the collector hub and record keeper of Ugly Labs. UglyDex tracks your wallet-linked identity, NFTs, cards, badges, UglyPoints (UP), and your rank on the UglyBoard.",
-    "**Cards:** your Ugly Labs NFTs live here as collectible cards with trait-based UP values. Filter, search by token, sort by UP, and flip them into holographic form.",
-    "**Badges:** earned through collecting, participation, and events. Colored means earned. Hover to see requirements and UP value. Some are limited-time and never return.",
-    "**UglyBoard:** the global leaderboard ranking all connected holders by total UglyPoints.",
-    "",
-    "**If something looks wrong:**",
-    "• Confirm your wallet is linked to the correct address (see verification + /linkwallet below).",
-    "• Refresh once and give it a moment — indexing takes time, even in the Uglyverse.",
-    "",
-    "👁 UglyDex doesn’t guess, roleplay, or forget. If it’s recorded, it happened."
-  ].join("\n");
-}
+  if (topic === "uglydex") {
+    return [
+      helpHeader(topic),
+      "",
+      `**UglyDex:** ${HELP_LINKS.uglydex}`,
+      "",
+      "**What it is:** the collector hub and record keeper of Ugly Labs. UglyDex tracks your wallet-linked identity, NFTs, cards, badges, UglyPoints (UP), and your rank on the UglyBoard.",
+      "**Cards:** your Ugly Labs NFTs live here as collectible cards with trait-based UP values. Filter, search by token, sort by UP, and flip them into holographic form.",
+      "**Badges:** earned through collecting, participation, and events. Colored means earned. Hover to see requirements and UP value. Some are limited-time and never return.",
+      "**UglyBoard:** the global leaderboard ranking all connected holders by total UglyPoints.",
+      "",
+      "**If something looks wrong:**",
+      "• Confirm your wallet is linked to the correct address (see verification + /linkwallet below).",
+      "• Refresh once and give it a moment — indexing takes time, even in the Uglyverse.",
+      "",
+      "👁 UglyDex doesn’t guess, roleplay, or forget. If it’s recorded, it happened."
+    ].join("\n");
+  }
 
+  // commands (default)
   return [
-    helpHeader(topic),
+    helpHeader("commands"),
     "",
     "**Verification / Wallet Linking (choose your ritual):**",
     `1) **Vulcan verification (roles/holdings):** go to <#${HELP_CHANNELS.vulcanVerifyChannelId}> and hit **Start Verification**. Follow the instructions to connect.`,
@@ -417,7 +418,11 @@ function isVagueHelp(raw) {
   const t = (raw || '').toLowerCase().trim();
   if (!t) return true;
   const short = t.length <= 16;
-  const vague = /^(help|help\??|anyone\??|wtf|huh\??|pls|please|yo|hello|gm|??+)$/.test(t.replace(/\s+/g, ''));
+
+  // FIXED: valid regex for "???" and friends
+  const compact = t.replace(/\s+/g, '');
+  const vague = /^(help|help\??|anyone\??|wtf|huh\??|pls|please|yo|hello|gm|\?+|!+|\.{2,})$/.test(compact);
+
   const lowInfo = looksLikeStruggle(t) && !/(wallet|verify|mint|uglydex|role|roles|grid|linkwallet|command|commands|ethereum|eth)/.test(t);
   return vague || (short && looksLikeStruggle(t)) || lowInfo;
 }
@@ -949,7 +954,7 @@ client.on(Events.MessageCreate, async (message) => {
     content.includes("squignito");
 
   if ((mentionedInSquig || repliedToBot) && userCooldownOk(mentionCooldowns, message.author.id, MENTION_COOLDOWN_SECONDS)) {
-    // 5) Gatekeeper: vague questions get pushed to choose a topic
+    // Gatekeeper: vague questions get pushed to choose a topic
     if (isVagueHelp(raw)) {
       await speak({
         kind: 'direct',
@@ -960,7 +965,7 @@ client.on(Events.MessageCreate, async (message) => {
       return;
     }
 
-    // 2) Almost-correct correction (fast and accurate)
+    // Almost-correct correction (fast and accurate)
     if (!spokeThisMessage) {
       const corrected = await maybeCorrectAlmost(message);
       if (corrected) {
@@ -969,13 +974,13 @@ client.on(Events.MessageCreate, async (message) => {
       }
     }
 
-    // 4) Thread anchor (when it looks like a real issue conversation)
+    // Thread anchor (when it looks like a real issue conversation)
     if (!spokeThisMessage) {
       const anchored = await maybeThreadAnchor(message);
       if (anchored) spokeThisMessage = true;
     }
 
-    // 1) Silent guide nudge (pointer to /insquig help)
+    // Silent guide nudge (pointer to /insquig help)
     if (!spokeThisMessage) {
       const nudged = await maybeNudge(message);
       if (nudged) {
@@ -997,28 +1002,27 @@ client.on(Events.MessageCreate, async (message) => {
     return;
   }
 
-  /** 2) Almost-correct correction can happen even without mention, but only if it prevents misinformation */
+  /** 5) Almost-correct correction can happen even without mention, but only if it prevents misinformation **/
   if (!spokeThisMessage) {
-    // Only correct when it's likely to mislead others (mint/chain/cards statements)
     if (/(mint|squigs|ethereum|eth|base|solana|polygon|cards?|uglydex)/.test(content)) {
       const corrected = await maybeCorrectAlmost(message);
       if (corrected) spokeThisMessage = true;
     }
   }
 
-  /** 5) Earned ambients only (NO RANDOM): channel wake + milestones + portal signals **/
+  /** 6) Earned ambients only (NO RANDOM): channel wake + milestones + portal signals **/
 
-  // 5a) Channel wake line (earned: inactivity)
+  // 6a) Channel wake line (earned: inactivity)
   if (!spokeThisMessage && Date.now() - prevHuman >= CHANNEL_WAKE_INACTIVITY_MS) {
     if (mood !== MOOD_LURK && channelCooldownOk(ambientChannelCooldowns, chId, AMBIENT_CHANNEL_COOLDOWN_SECONDS)) {
       await speak({
         kind: 'ambient',
         fn: async () => {
           const wakeLines = [
-            "👁 …oh. You’re back. The silence was getting ideas.",
+            "👁 ...oh. You’re back. The silence was getting ideas.",
             "The channel slept. I counted the breaths between messages.",
             "👁 Waking sequence complete. Try not to startle the pixels.",
-            "I watched the quiet pile up. It was… educational."
+            "I watched the quiet pile up. It was... educational."
           ];
           await message.channel.send(pick(wakeLines)).catch(() => {});
         }
@@ -1026,7 +1030,7 @@ client.on(Events.MessageCreate, async (message) => {
     }
   }
 
-  // 5b) Lore tick milestone (earned: every N messages) — only when curious/active
+  // 6b) Lore tick milestone (earned: every N messages) — only when curious/active
   if (!spokeThisMessage) {
     const newCount = (messageCounter.get(chId) || 0) + 1;
     messageCounter.set(chId, newCount);
@@ -1052,7 +1056,7 @@ client.on(Events.MessageCreate, async (message) => {
     }
   }
 
-  // 5c) Portal lines (earned: only when portal signals appear) — only when active
+  // 6c) Portal lines (earned: only when portal signals appear) — only when active
   if (!spokeThisMessage && contentHasPortalSignals(raw)) {
     if (
       mood === MOOD_ACTIVE &&
@@ -1067,7 +1071,7 @@ client.on(Events.MessageCreate, async (message) => {
     }
   }
 
-  // 5d) #general watcher line (earned: only when curious/active AND a milestone)
+  // 6d) #general watcher line (earned: only when curious/active AND a milestone)
   if (!spokeThisMessage && chId === GENERAL_CHANNEL_ID) {
     const count = messageCounter.get(chId) || 0;
     if (mood !== MOOD_LURK && count > 0 && count % 40 === 0) {
@@ -1082,7 +1086,7 @@ client.on(Events.MessageCreate, async (message) => {
     }
   }
 
-  // 5e) Small ambient ping (earned: attachment OR very long message) — only when curious/active
+  // 6e) Small ambient ping (earned: attachment OR very long message) — only when curious/active
   if (!spokeThisMessage && mood !== MOOD_LURK) {
     const hasAttachment = (message.attachments && message.attachments.size > 0);
     const isLong = raw.length >= 320;
@@ -1097,7 +1101,7 @@ client.on(Events.MessageCreate, async (message) => {
     }
   }
 
-  /** 6) Whisper Replies (kept, but suppressed by pile-on + guardrail) **/
+  /** 7) Whisper Replies (kept, but suppressed by pile-on + guardrail) **/
   if (!spokeThisMessage) {
     if (Math.random() < WHISPER_REPLY_PROB && userCooldownOk(whisperUserCooldowns, message.author.id, WHISPER_USER_COOLDOWN_S)) {
       if (mood !== MOOD_LURK && canAmbientSpeak(chId)) {
@@ -1108,7 +1112,7 @@ client.on(Events.MessageCreate, async (message) => {
             if (!canAmbientSpeak(chId)) return;
 
             const whispers = [
-              "👁 …noted.",
+              "👁 ...noted.",
               "The wall blinked at that sentence.",
               "👁 Keep going. The static is learning your shape.",
               "Logged. Quietly.",
@@ -1125,7 +1129,7 @@ client.on(Events.MessageCreate, async (message) => {
     }
   }
 
-  /** 7) Random chance to mark user (rare; ambient + guardrailed) **/
+  /** 8) Random chance to mark user (rare; ambient + guardrailed) **/
   if (!spokeThisMessage && Math.random() < MARK_RANDOM_PROB) {
     await speak({
       kind: 'ambient',
@@ -1185,4 +1189,3 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
 /** --- Login --- **/
 client.login(process.env.SQUIG_TOKEN);
-
