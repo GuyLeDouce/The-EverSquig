@@ -1184,8 +1184,8 @@ client.on(Events.MessageCreate, async (message) => {
   const baitAttempt = isBaitAttempt(message, content);
 
   if (!spokeThisMessage && (mentionedInSquig || repliedToBot)) {
-    // If it's bait, go colder or stay silent
-    if (!looksLikeQuestion(raw) && baitAttempt) {
+    // If it's bait, go colder or stay silent (unless they’re asking for help)
+    if (!looksLikeQuestion(raw) && baitAttempt && !looksLikeStruggle(raw)) {
       return;
     }
 
