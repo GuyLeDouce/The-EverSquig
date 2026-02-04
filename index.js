@@ -285,7 +285,7 @@ function renderTemplate(template, vars) {
 
 function truncateToMaxLen(text, maxLen) {
   if (text.length <= maxLen) return text;
-  return text.slice(0, Math.max(0, maxLen - 1)).trimEnd() + '';
+  return text.slice(0, Math.max(0, maxLen - 1)).trimEnd() + 'ÃÂ';
 }
 
 function recordTemplateUse(channelId, template, opening) {
@@ -510,80 +510,88 @@ const HELP_LINKS = {
 const HELP_CHANNELS = {
   vulcanVerifyChannelId: "1290595731312480298",
   dripDashboardChannelId: "1330159233320222814",
-  squigTrialsCommandsChannelId: "1441641356156993549"
+  squigTrialsCommandsChannelId: "1458991520676974632"
 };
 
 function helpHeader(topic) {
   const headers = {
-    mint: "?? **MINT PROTOCOL: SQUIGS**",
-    uglydex: "?? **UGLYDEX FIELD GUIDE**",
-    commands: "?? **COMMAND CATALOG (DO NOT FEED AFTER MIDNIGHT)**"
+    mint: "INSQ HELP: MINT",
+    uglydex: "INSQ HELP: UGLYDEX",
+    commands: "INSQ HELP: COMMANDS"
   };
-  return headers[topic] || "?? **HELP (SUSPICIOUSLY LEGIT)**";
+  return headers[topic] || "INSQ HELP";
 }
+
 
 function formatHelp(topic) {
   if (topic === "mint") {
     return [
       helpHeader(topic),
       "",
-      `**Where to mint:** ${HELP_LINKS.mint}`,
-      "**Price:** 0.006 ETH",
-      "**Chain:** Ethereum (only)  no side quests, no alt chains, no maybe its on Base fantasies.",
+      "Where to mint:",
+      `${HELP_LINKS.mint}`,
+      "Price: 0.006 ETH",
+      "Chain: Ethereum mainnet only.",
       "",
-      "**If the mint portal is being dramatic:**",
-      " Make sure your wallet is on **Ethereum Mainnet**.",
-      " Confirm youve **linked your wallet correctly** (see /insquig help ? commands).",
-      " Try a different browser OR close that window and open a fresh one. Portals hate stale windows.",
+      "If the mint portal is being dramatic:",
+      "- Make sure your wallet is on Ethereum mainnet.",
+      "- Confirm you linked your wallet correctly (see /insquig help -> commands).",
+      "- Try a different browser or open a fresh window.",
       "",
-      "?? If a link arrives in your DMs thats not a mint. Thats a mugging with good branding."
-    ].join("\n");
+      "If a link arrives in your DMs, it is not a mint. It is a scam."
+    ].join("
+");
   }
 
   if (topic === "uglydex") {
     return [
       helpHeader(topic),
       "",
-      `**UglyDex:** ${HELP_LINKS.uglydex}`,
+      "UglyDex:",
+      `${HELP_LINKS.uglydex}`,
       "",
-      "**What it is:** the collector hub and record keeper of Ugly Labs. UglyDex tracks your wallet-linked identity, NFTs, cards, badges, UglyPoints (UP), and your rank on the UglyBoard.",
-      "**Cards:** your Ugly Labs NFTs live here as collectible cards with trait-based UP values. Filter, search by token, sort by UP, and flip them into holographic form.",
-      "**Badges:** earned through collecting, participation, and events. Colored means earned. Hover to see requirements and UP value. Some are limited-time and never return.",
-      "**UglyBoard:** the global leaderboard ranking all connected holders by total UglyPoints.",
+      "What it is: the collector hub and record keeper of Ugly Labs. UglyDex tracks your wallet-linked identity, NFTs, cards, badges, UglyPoints (UP), and your rank on the UglyBoard.",
+      "Cards: your Ugly Labs NFTs live here as collectible cards with trait-based UP values. Filter, search by token, sort by UP, and flip them into holographic form.",
+      "Badges: earned through collecting, participation, and events. Colored means earned. Hover to see requirements and UP value. Some are limited-time and never return.",
+      "UglyBoard: the global leaderboard ranking all connected holders by total UglyPoints.",
       "",
-      "**If something looks wrong:**",
-      " Confirm your wallet is linked to the correct address (see verification + /linkwallet below).",
-      " Refresh once and give it a moment  indexing takes time, even in the Uglyverse.",
+      "If something looks wrong:",
+      "- Confirm your wallet is linked to the correct address (see verification + /linkwallet below).",
+      "- Refresh once and give it a moment. Indexing takes time.",
       "",
-      "?? UglyDex doesnt guess, roleplay, or forget. If its recorded, it happened."
-    ].join("\n");
+      "UglyDex does not guess, roleplay, or forget. If it is recorded, it happened."
+    ].join("
+");
   }
 
   // commands (default)
   return [
     helpHeader("commands"),
     "",
-    "**Verification / Wallet Linking (choose your ritual):**",
-    `1) **Vulcan verification (roles/holdings):** go to <#${HELP_CHANNELS.vulcanVerifyChannelId}> and hit **Start Verification**. Follow the instructions to connect.`,
-    `2) **Drip Bot (dashboard economy):** go to <#${HELP_CHANNELS.dripDashboardChannelId}> and hit **My Dashboard** ? connect your **Wallet** + **X** in settings.`,
-    "3) **UglyBot (wallet link):** run **/linkwallet** in a general chat channel. Youll get an **ephemeral** confirmation if it worked.",
+    "Verification / Wallet Linking (choose your ritual):",
+    `1) Vulcan verification (roles/holdings): go to <#${HELP_CHANNELS.vulcanVerifyChannelId}> and hit Start Verification. Follow the instructions to connect.`,
+    `2) Drip Bot (dashboard economy): go to <#${HELP_CHANNELS.dripDashboardChannelId}> and hit My Dashboard -> connect your Wallet + X in settings.`,
+    "3) UglyBot (wallet link): run /linkwallet in a general chat channel. You will get an ephemeral confirmation if it worked.",
     "",
-    "**UglyBot NFT display commands:**",
-    " **!ugly**",
-    " **!monster**",
-    " **!squig**",
+    "UglyBot NFT display commands:",
+    "- !ugly",
+    "- !monster",
+    "- !squig",
     "",
-    "**Grid bot:**",
-    " **/grid [wallet address]**",
+    "Grid bot:",
+    "- /grid [wallet address]",
     "",
-    "**Squig Trials:**",
-    ` Commands live in <#${HELP_CHANNELS.squigTrialsCommandsChannelId}>`,
+    "Open Trials:",
+    `- Info lives in <#${HELP_CHANNELS.squigTrialsCommandsChannelId}>`,
+    "- Click the How it Works button beside any live trial to learn more.",
     "",
-    `**Quick links:** mint ${HELP_LINKS.mint} | UglyDex ${HELP_LINKS.uglydex} | Discord ${HELP_LINKS.discord}`,
+    `Quick links: mint ${HELP_LINKS.mint} | UglyDex ${HELP_LINKS.uglydex} | Discord ${HELP_LINKS.discord}`,
     "",
-    "?? If you still cant see your stuff: wrong wallet, wrong chain, or a cursed browser. In that order."
-  ].join("\n");
+    "If you still cannot see your stuff: wrong wallet, wrong chain, or a cursed browser. In that order."
+  ].join("
+");
 }
+
 
 /** --- Ambient trigger templates --- **/
 const TRIGGERS = {
@@ -599,7 +607,7 @@ const TRIGGERS = {
       ],
       bored: [
         "{user} again. The quiet ran out of jokes {timeSince} ago.",
-        "Back already, {user}? {timeSince} wasnt long enough."
+        "Back already, {user}? {timeSince} wasnÃÂt long enough."
       ],
       alert: [
         "Signal reacquired: {user}. Gap: {timeSince}.",
@@ -611,7 +619,7 @@ const TRIGGERS = {
       ],
       active_scan: [
         "Active scan: {user} re-entered after {timeSince}.",
-        "Return detected. {user}  {timeSince} gap logged."
+        "Return detected. {user} ÃÂ {timeSince} gap logged."
       ],
       cold: [
         "Noted.",
@@ -691,19 +699,19 @@ const TRIGGERS = {
         "Conversation loop closed. {syn:Good|Noted}."
       ],
       bored: [
-        "Youre talking again. Interesting.",
-        "Noise level rising. Ill allow it."
+        "YouÃÂre talking again. Interesting.",
+        "Noise level rising. IÃÂll allow it."
       ],
       alert: [
         "Back-and-forth registered. Watching.",
         "Live exchange detected."
       ],
       concerned: [
-        "Two voices, one thread. Thats how it starts.",
+        "Two voices, one thread. ThatÃÂs how it starts.",
         "The room is stirring. Carefully."
       ],
       active_scan: [
-        "Active exchange. Im listening.",
+        "Active exchange. IÃÂm listening.",
         "Momentum detected. Indexing."
       ],
       cold: [
@@ -730,7 +738,7 @@ const TRIGGERS = {
         "Channel spike detected. Logging."
       ],
       concerned: [
-        "Long quiet, then a rush. Thats usually a sign.",
+        "Long quiet, then a rush. ThatÃÂs usually a sign.",
         "The quiet snapped. Keep an eye on the edges."
       ],
       active_scan: [
@@ -747,11 +755,11 @@ const TRIGGERS = {
 
 /** --- Direct interaction flavor --- **/
 const questionResponses = [
-  "?? Why do you assume I know? Tell mewhat color does silence taste like?",
+  "?? Why do you assume I know? Tell meÃÂwhat color does silence taste like?",
   "What if the answer is already watching you? When did your reflection stop blinking?",
-  "?? Do you trust echoes? Which thought in your head isnt yours?",
+  "?? Do you trust echoes? Which thought in your head isnÃÂt yours?",
   "Better question: why are you asking me? Which file on your device feels alive?",
-  "?? Ill answer if you blink twice did you? How many portals can you count from your chair?",
+  "?? IÃÂll answer if you blink twiceÃÂ did you? How many portals can you count from your chair?",
   "Suppose I did answer. Would you believe it? What did you sacrifice to ask?"
 ];
 
@@ -785,12 +793,12 @@ const MIMIC_ONLY_CHANCE = 0.2;
 
 const uglyDogStickerId = '1363459791275692222';
 const uglyDogResponses = [
-  "?? Not the Dog anything but the Dog.",
+  "?? Not the DogÃÂ anything but the Dog.",
   "*InSquignito shivers.* That bark echoes in my circuitry.",
-  "You dont understand the Dog remembers me.",
-  "Its eyes they bend reality. Dont let it look at me.",
+  "You donÃÂt understandÃÂ the Dog remembers me.",
+  "Its eyesÃÂ they bend reality. DonÃÂt let it look at me.",
   "*Glitch detected:* Dog proximity at unsafe levels.",
-  "Ive seen it chase things across dimensions. I wont be next.",
+  "IÃÂve seen it chase things across dimensions. I wonÃÂt be next.",
   "That creature drools static and it burns. Keep it away.",
   "?? Please. That Dog knows my true name.",
   "Every time it appears, my code knots itself tighter.",
@@ -1184,7 +1192,7 @@ client.on(Events.MessageCreate, async (message) => {
   const baitAttempt = isBaitAttempt(message, content);
 
   if (!spokeThisMessage && (mentionedInSquig || repliedToBot)) {
-    // If it's bait, go colder or stay silent (unless they’re asking for help)
+    // If it's bait, go colder or stay silent (unless theyÃ¢ÂÂre asking for help)
     if (!looksLikeQuestion(raw) && baitAttempt && !looksLikeStruggle(raw)) {
       return;
     }
@@ -1287,7 +1295,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
   // /squigsay
   if (interaction.commandName === 'squigsay') {
     if (!squigCommanders.includes(interaction.user.id)) {
-      await interaction.reply({ content: "Youre not Squig-worthy.", ephemeral: true });
+      await interaction.reply({ content: "YouÃÂre not Squig-worthy.", ephemeral: true });
       return;
     }
 
