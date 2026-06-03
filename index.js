@@ -1121,6 +1121,13 @@ async function maybeAskScheduledQuestionPrompt(now = Date.now()) {
     await client.channels.fetch(QUESTION_PROMPT_CHANNEL_ID).catch(() => null);
   if (!canAskQuestionPrompt(channel, now)) return false;
 
+  return sendQuestionPrompt(channel, now, { manual: false });
+}
+
+async function sendQuestionPrompt(channel, now = Date.now(), options = {}) {
+  if (!channel || channel.id !== QUESTION_PROMPT_CHANNEL_ID || !channel.isTextBased()) return false;
+
+  const qp = getQuestionPromptState();
   const prompt = nextQuestionPrompt();
   const sent = await channel.send(`INSQ ${prompt.text}`).catch(() => null);
   if (!sent) return false;
@@ -1131,7 +1138,8 @@ async function maybeAskScheduledQuestionPrompt(now = Date.now()) {
   qp.activeMessages[sent.id] = {
     sentTs: now,
     questionIndex: prompt.index,
-    responses: 0
+    responses: 0,
+    manual: !!options.manual
   };
   pruneQuestionPromptMessages(now);
   scheduleSave();
@@ -1160,9 +1168,9 @@ async function maybeRespondToQuestionPromptReply(message, referencedMessage, now
   if (!referencedMessage || referencedMessage.author?.id !== client.user.id) return false;
 
   const qp = getQuestionPromptState();
-  if (qp.enabled === false) return false;
   const promptMeta = qp.activeMessages?.[referencedMessage.id];
   if (!promptMeta) return false;
+  if (qp.enabled === false && !promptMeta.manual) return false;
   if ((promptMeta.responses || 0) >= QUESTION_PROMPT_MAX_RESPONSES) return false;
   if (now - (qp.responseLastTs || 0) < QUESTION_PROMPT_REPLY_COOLDOWN_MS) return false;
 
@@ -1331,6 +1339,11 @@ client.once(Events.ClientReady, async () => {
       sc
         .setName('off')
         .setDescription('Turn question prompts off')
+    )
+    .addSubcommand(sc =>
+      sc
+        .setName('now')
+        .setDescription('Ask a question immediately')
     );
 
   const insquig = new SlashCommandBuilder()
@@ -1691,6 +1704,24 @@ client.on(Events.InteractionCreate, async (interaction) => {
       scheduleSave();
       scheduleQuestionPromptTimer();
       await interaction.reply({ content: "Question prompts: off.", ephemeral: true }).catch(() => {});
+      return;
+    }
+
+    if (sub === 'now') {
+      const now = Date.now();
+      const channel = client.channels.cache.get(QUESTION_PROMPT_CHANNEL_ID) ||
+        await client.channels.fetch(QUESTION_PROMPT_CHANNEL_ID).catch(() => null);
+
+      const sent = await sendQuestionPrompt(channel, now, { manual: true });
+      if (!sent) {
+        await interaction.reply({ content: "Could not send a question right now.", ephemeral: true }).catch(() => {});
+        return;
+      }
+
+      qp.nextAskTs = now + randBetween(QUESTION_PROMPT_MIN_MS, QUESTION_PROMPT_MAX_MS);
+      scheduleSave();
+      scheduleQuestionPromptTimer();
+      await interaction.reply({ content: "Question sent.", ephemeral: true }).catch(() => {});
       return;
     }
   }
