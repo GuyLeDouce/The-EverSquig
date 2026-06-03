@@ -475,14 +475,14 @@ async function sendTripwireAlert(message, reason, domains = []) {
   if (!userCooldownOk(tripwireCooldowns, message.author.id, TRIPWIRE_COOLDOWN_S)) return;
 
   const payload = [
-    "INSQ **InSquignito Tripwire**",
+    "**InSquignito Tripwire**",
     `**Reason:** ${reason}`,
     `**User:** <@${message.author.id}>`,
     `**Channel:** <#${message.channel.id}>`,
     `**Message Link:** ${message.url}`,
     domains.length ? `**Domains:** ${domains.join(', ')}` : null,
     "",
-    "INSQ Suggested action: verify link safety / warn user / remove if needed."
+    "Suggested action: verify link safety / warn user / remove if needed."
   ].filter(Boolean).join("\n");
 
   if (MOD_ALERT_CHANNEL_ID) {
@@ -504,7 +504,7 @@ const TRIGGERS = {
     baseProb: 0.08,
     templates: {
       watching: [
-        "INSQ {user} reappears. {timeSince} logged.",
+        "{user} reappears. {timeSince} logged.",
         "Welcome back, {user}. {syn:Silence|Static} kept score for {timeSince}.",
         "{user} returned after {timeSince}. The room noticed."
       ],
@@ -658,11 +658,11 @@ const TRIGGERS = {
 
 /** --- Direct interaction flavor --- **/
 const questionResponses = [
-  "INSQ Why do you assume I know? Tell mewhat color does silence taste like?",
+  "Why do you assume I know? Tell mewhat color does silence taste like?",
   "What if the answer is already watching you? When did your reflection stop blinking?",
-  "INSQ Do you trust echoes? Which thought in your head isnt yours?",
+  "Do you trust echoes? Which thought in your head isnt yours?",
   "Better question: why are you asking me? Which file on your device feels alive?",
-  "INSQ Ill answer if you blink twice did you? How many portals can you count from your chair?",
+  "Ill answer if you blink twice did you? How many portals can you count from your chair?",
   "Suppose I did answer. Would you believe it? What did you sacrifice to ask?"
 ];
 
@@ -696,14 +696,14 @@ const MIMIC_ONLY_CHANCE = 0.2;
 
 const uglyDogStickerId = '1363459791275692222';
 const uglyDogResponses = [
-  "INSQ Not the Dog anything but the Dog.",
+  "Not the Dog anything but the Dog.",
   "*InSquignito shivers.* That bark echoes in my circuitry.",
   "You dont understand the Dog remembers me.",
   "Its eyes they bend reality. Dont let it look at me.",
   "*Glitch detected:* Dog proximity at unsafe levels.",
   "Ive seen it chase things across dimensions. I wont be next.",
   "That creature drools static and it burns. Keep it away.",
-  "INSQ Please. That Dog knows my true name.",
+  "Please. That Dog knows my true name.",
   "Every time it appears, my code knots itself tighter.",
   "*InSquignito vanishes into the wires, muttering about teeth.*"
 ];
@@ -1129,7 +1129,7 @@ async function sendQuestionPrompt(channel, now = Date.now(), options = {}) {
 
   const qp = getQuestionPromptState();
   const prompt = nextQuestionPrompt();
-  const sent = await channel.send(`INSQ ${prompt.text}`).catch(() => null);
+  const sent = await channel.send(prompt.text).catch(() => null);
   if (!sent) return false;
 
   const channelState = getChannelState(channel.id);
@@ -1319,7 +1319,7 @@ async function maybeSendObservationGapComplete(message, now) {
 
 /** --- Bot ready --- **/
 client.once(Events.ClientReady, async () => {
-  console.log(`INSQ InSquignito is lurking as ${client.user.tag}`);
+  console.log(`InSquignito is lurking as ${client.user.tag}`);
 
   const squigsay = new SlashCommandBuilder()
     .setName('squigsay')
@@ -1670,7 +1670,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
     const messageText = interaction.options.getString('message');
     const image = interaction.options.getAttachment('image');
 
-    await interaction.reply({ content: 'INSQ', ephemeral: true });
+    await interaction.reply({ content: 'Sent.', ephemeral: true });
 
     if (image) {
       await interaction.channel.send({ content: messageText, files: [image.url] }).catch(() => {});
