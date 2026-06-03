@@ -1120,6 +1120,38 @@ function pruneQuestionPromptMessages(now) {
   qp.activeMessages = Object.fromEntries(entries);
 }
 
+function getQuestionPromptIndexFromMessage(message) {
+  const text = (message?.content || '').trim();
+  if (!text) return -1;
+  return QUESTION_PROMPTS.indexOf(text);
+}
+
+function isQuestionPromptMessage(message) {
+  return getQuestionPromptIndexFromMessage(message) !== -1;
+}
+
+function getQuestionPromptReplyMeta(referencedMessage, now) {
+  const qp = getQuestionPromptState();
+  let promptMeta = qp.activeMessages?.[referencedMessage.id];
+  if (promptMeta) return promptMeta;
+
+  const questionIndex = getQuestionPromptIndexFromMessage(referencedMessage);
+  if (questionIndex === -1) return null;
+
+  promptMeta = {
+    sentTs: referencedMessage.createdTimestamp || now,
+    questionIndex,
+    responses: 0,
+    responseUserIds: [],
+    manual: true,
+    recovered: true
+  };
+  qp.activeMessages[referencedMessage.id] = promptMeta;
+  pruneQuestionPromptMessages(now);
+  scheduleSave();
+  return promptMeta;
+}
+
 function nextQuestionPrompt() {
   const qp = getQuestionPromptState();
   if (!Array.isArray(qp.order)) qp.order = [];
@@ -1217,7 +1249,7 @@ async function maybeRespondToQuestionPromptReply(message, referencedMessage, now
   if (!referencedMessage || referencedMessage.author?.id !== client.user.id) return false;
 
   const qp = getQuestionPromptState();
-  const promptMeta = qp.activeMessages?.[referencedMessage.id];
+  const promptMeta = getQuestionPromptReplyMeta(referencedMessage, now);
   if (!promptMeta) return false;
   if (qp.enabled === false && !promptMeta.manual) return false;
 
@@ -1511,7 +1543,11 @@ client.on(Events.MessageCreate, async (message) => {
   }
   const repliedToQuestionPrompt = !!(
     referencedMessage &&
-    getQuestionPromptState().activeMessages?.[referencedMessage.id]
+    referencedMessage.author?.id === client.user.id &&
+    (
+      getQuestionPromptState().activeMessages?.[referencedMessage.id] ||
+      isQuestionPromptMessage(referencedMessage)
+    )
   );
 
   // Tripwire (quiet): detect suspicious content and alert mods
