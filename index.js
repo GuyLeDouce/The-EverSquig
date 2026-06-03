@@ -40,8 +40,6 @@ const AMBIENT_GLOBAL_COOLDOWN_HOURS_MAX = 12;
 const MIN_HUMAN_MESSAGES_AFTER_BOT = 8; // require this many human messages after bot spoke in channel
 
 // Direct response throttles
-const DIRECT_USER_COOLDOWN_S = 180;
-const MENTION_COOLDOWN_SECONDS = 300;
 const QUESTION_COOLDOWN_SECONDS = 120;
 
 // Sticker panic cooldown
@@ -110,6 +108,15 @@ const DEFAULT_STATE = {
       endTs: 0,
       pendingComplete: false
     },
+    questionPrompts: {
+      enabled: true,
+      nextAskTs: 0,
+      lastActivityTs: 0,
+      lastMessageWasQuestion: false,
+      order: [],
+      activeMessages: {},
+      responseLastTs: 0
+    },
     history: {
       globalTemplates: [],
       globalOpenings: []
@@ -140,6 +147,10 @@ function safeLoadState() {
         observation: {
           ...structuredClone(DEFAULT_STATE.global.observation),
           ...((parsed.global || {}).observation || {})
+        },
+        questionPrompts: {
+          ...structuredClone(DEFAULT_STATE.global.questionPrompts),
+          ...((parsed.global || {}).questionPrompts || {})
         }
       }
     };
@@ -227,21 +238,6 @@ function looksLikeQuestion(raw) {
     t.includes('?') ||
     /^(how|what|why|where|when|who|can|should|do|is|are)\b/.test(t.trim())
   );
-}
-
-function looksLikeStruggle(raw) {
-  const t = (raw || '').toLowerCase();
-  return /(help|stuck|issue|problem|not working|doesn'?t work|failed|error|broken|won'?t|cant|can'?t|how do i)/.test(t);
-}
-
-function isVagueHelp(raw) {
-  const t = (raw || '').toLowerCase().trim();
-  if (!t) return true;
-  const short = t.length <= 16;
-  const compact = t.replace(/\s+/g, '');
-  const vague = /^(help|help\INSQ|anyone\INSQ|wtf|huh\INSQ|pls|please|yo|hello|gm|\?+|!+|\.{2,})$/.test(compact);
-  const lowInfo = looksLikeStruggle(t) && !/(wallet|verify|mint|uglydex|role|roles|grid|linkwallet|command|commands|ethereum|eth)/.test(t);
-  return vague || (short && looksLikeStruggle(t)) || lowInfo;
 }
 
 function isChannelNameBlocked(channel) {
@@ -500,96 +496,6 @@ async function sendTripwireAlert(message, reason, domains = []) {
   console.log(payload);
 }
 
-/** --- Help content (kept) --- **/
-const HELP_LINKS = {
-  mint: "https://squigs.io/",
-  discord: "https://discord.gg/wAqWNh6ndS",
-  uglydex: "https://uglydex.xyz/"
-};
-
-const HELP_CHANNELS = {
-  vulcanVerifyChannelId: "1290595731312480298",
-  dripDashboardChannelId: "1330159233320222814",
-  squigTrialsCommandsChannelId: "1458991520676974632"
-};
-
-function helpHeader(topic) {
-  const headers = {
-    mint: "INSQ HELP: MINT",
-    uglydex: "INSQ HELP: UGLYDEX",
-    commands: "INSQ HELP: COMMANDS"
-  };
-  return headers[topic] || "INSQ HELP";
-}
-
-
-function formatHelp(topic) {
-  if (topic === "mint") {
-    return [
-      helpHeader(topic),
-      "",
-      "Where to mint:",
-      `${HELP_LINKS.mint}`,
-      "Price: 0.006 ETH",
-      "Chain: Ethereum mainnet only.",
-      "",
-      "If the mint portal is being dramatic:",
-      "- Make sure your wallet is on Ethereum mainnet.",
-      "- Confirm you linked your wallet correctly (see /insquig help -> commands).",
-      "- Try a different browser or open a fresh window.",
-      "",
-      "If a link arrives in your DMs, it is not a mint. It is a scam."
-    ].join("\n");
-  }
-
-  if (topic === "uglydex") {
-    return [
-      helpHeader(topic),
-      "",
-      "UglyDex:",
-      `${HELP_LINKS.uglydex}`,
-      "",
-      "What it is: the collector hub and record keeper of Ugly Labs. UglyDex tracks your wallet-linked identity, NFTs, cards, badges, UglyPoints (UP), and your rank on the UglyBoard.",
-      "Cards: your Ugly Labs NFTs live here as collectible cards with trait-based UP values. Filter, search by token, sort by UP, and flip them into holographic form.",
-      "Badges: earned through collecting, participation, and events. Colored means earned. Hover to see requirements and UP value. Some are limited-time and never return.",
-      "UglyBoard: the global leaderboard ranking all connected holders by total UglyPoints.",
-      "",
-      "If something looks wrong:",
-      "- Confirm your wallet is linked to the correct address (see verification + /linkwallet below).",
-      "- Refresh once and give it a moment. Indexing takes time.",
-      "",
-      "UglyDex does not guess, roleplay, or forget. If it is recorded, it happened."
-    ].join("\n");
-  }
-
-  // commands (default)
-  return [
-    helpHeader("commands"),
-    "",
-    "Verification / Wallet Linking (choose your ritual):",
-    `1) Vulcan verification (roles/holdings): go to <#${HELP_CHANNELS.vulcanVerifyChannelId}> and hit Start Verification. Follow the instructions to connect.`,
-    `2) Drip Bot (dashboard economy): go to <#${HELP_CHANNELS.dripDashboardChannelId}> and hit My Dashboard -> connect your Wallet + X in settings.`,
-    "3) UglyBot (wallet link): run /linkwallet in a general chat channel. You will get an ephemeral confirmation if it worked.",
-    "",
-    "UglyBot NFT display commands:",
-    "- !ugly",
-    "- !monster",
-    "- !squig",
-    "",
-    "Grid bot:",
-    "- /grid [wallet address]",
-    "",
-    "Open Trials:",
-    `- Info lives in <#${HELP_CHANNELS.squigTrialsCommandsChannelId}>`,
-    "- Click the How it Works button beside any live trial to learn more.",
-    "",
-    `Quick links: mint ${HELP_LINKS.mint} | UglyDex ${HELP_LINKS.uglydex} | Discord ${HELP_LINKS.discord}`,
-    "",
-    "If you still cannot see your stuff: wrong wallet, wrong chain, or a cursed browser. In that order."
-  ].join("\n");
-}
-
-
 /** --- Ambient trigger templates --- **/
 const TRIGGERS = {
   RETURN: {
@@ -802,9 +708,478 @@ const uglyDogResponses = [
   "*InSquignito vanishes into the wires, muttering about teeth.*"
 ];
 
-const directCooldowns = new Map();
+/** --- General-channel question prompts --- **/
+const QUESTION_PROMPT_CHANNEL_ID = GENERAL_CHANNEL_ID;
+const QUESTION_PROMPT_MIN_MS = 20 * 60 * 1000;
+const QUESTION_PROMPT_MAX_MS = 4 * HOUR_MS;
+const QUESTION_PROMPT_ACTIVITY_WINDOW_MS = 90 * 60 * 1000;
+const QUESTION_PROMPT_MIN_HUMAN_MESSAGES_AFTER_BOT = 3;
+const QUESTION_PROMPT_REPLY_COOLDOWN_MS = 90 * 1000;
+const QUESTION_PROMPT_MAX_RESPONSES = 5;
+const QUESTION_PROMPT_ACTIVE_TTL_MS = 24 * HOUR_MS;
+const QUESTION_PROMPT_ACTIVE_LIMIT = 20;
+
+const QUESTION_PROMPTS = `
+What human food should I try first?
+Why do humans drink coffee like it is emergency spaceship fuel?
+What planet is known as the Red Planet?
+What is the strangest thing in your fridge right now?
+What song should play when the portal opens?
+Is cereal soup, or are humans lying again?
+How many legs does a spider have?
+Which Earth animal is most likely already an alien?
+What is the best chip flavor?
+What human habit makes absolutely no sense?
+What is the largest ocean on Earth?
+Why does a microwave scream when it is finished?
+What snack belongs in an invasion survival kit?
+What gas do plants absorb from the atmosphere?
+What movie should be watched before judging Earth?
+What would your pet tell me about you?
+What is the capital city of Japan?
+What is your most controversial food opinion?
+What should I order from a fast food place first?
+What is the fastest land animal?
+What human invention is the most confusing?
+What item belongs in every Earth survival kit?
+How many continents are there on Earth?
+What emoji has the most Squig energy?
+Why do humans lift heavy things at gyms just to put them back?
+What is the chemical symbol for gold?
+What human word sounds completely fake?
+What food should be deleted from Earth forever?
+What is the largest mammal on Earth?
+If Earth had one official dish, what should it be?
+What is the weirdest thing sold at Walmart?
+What is the tallest mountain on Earth?
+What is your most useless talent?
+Why do humans wear ties to look serious?
+What is the smallest prime number?
+What is the best spaceship name?
+What is the most Web3 thing you have ever done?
+What is the closest star to Earth?
+What trait would make any creature too powerful?
+What pizza topping causes the most arguments?
+What is the largest planet in our solar system?
+What animal looks like it knows too much?
+What object in your house has the most lore?
+How many sides does a hexagon have?
+What song should be the official anthem?
+What would get you abducted by aliens?
+What is the freezing point of water in Celsius?
+What smell is the most confusing?
+What makes humans worth studying?
+If something landed at your door tonight, what is the first thing you would say?
+Why do humans say "I'm fine" when their face says they are not fine?
+What is the best candy on Earth?
+What is the worst candy on Earth?
+What is the capital city of Canada?
+Why does money control human moods?
+What human job sounds completely made up?
+How many bones are in the adult human body?
+What is the weirdest thing humans put on pizza?
+What animal would be the best bodyguard?
+Why do humans take pictures of food before eating it?
+What is the main ingredient in guacamole?
+What is the most suspicious item in your room?
+What sport looks the most ridiculous?
+What sport looks the most dangerous?
+What do bees make?
+What human tradition should be avoided?
+What is the best fast food order?
+What planet has rings around it?
+What is the best thing about hockey?
+What human phrase should be banned from Earth?
+What is the capital city of France?
+Why do humans willingly visit dentists?
+What is your most irrational fear?
+What is the largest desert on Earth?
+What human object looks like alien technology?
+What snack looks bad but tastes amazing?
+What is the first element on the periodic table?
+What was the weirdest rule at your school?
+What food do you eat like a goblin?
+What is the square root of 64?
+What human tradition makes the least sense?
+What is the largest bone in the human body?
+What would you rename Earth?
+What is your most Squig-coded flaw?
+Which planet is closest to the Sun?
+What is the worst part of airports?
+What food deserves more respect?
+How many sides does a triangle have?
+What would make aliens return you immediately?
+What is the best dipping sauce?
+What is the capital city of Italy?
+What do influencers actually do?
+What would your strange alien job title be?
+What animal can change color to blend into its surroundings?
+Why do gyms smell like effort and sadness?
+What is your strongest useless opinion?
+What is the biggest animal ever known to exist?
+What is the best thing about snow?
+What food tastes better stolen from someone else's plate?
+What is the opposite of north?
+What question should be asked to every human boss?
+What is the capital city of Australia?
+What human invention deserves to be stolen first?
+What object in your house has the most backstory?
+How many planets are in our solar system?
+Why are phones so addictive?
+What is the most chaotic thing in your camera roll?
+What animal lays the largest eggs?
+Why are leaf blowers so loud?
+What is your favorite weird word?
+What food is easiest to become addicted to?
+What is the boiling point of water in Celsius?
+What human thing needs an alien explanation?
+What pet would you trust the least?
+What is the fastest bird in the world?
+What human activity should be banned?
+What belongs in an alien survival kit?
+What is the main language spoken in Brazil?
+Why are mirrors so suspicious?
+What is the best midnight snack?
+What trait makes someone a menace?
+What planet is farthest from the Sun?
+Why do humans chase tiny balls around golf courses?
+What is your emergency snack?
+What is the largest organ in the human body?
+Why does traffic make humans so angry?
+What human smell is the hardest to explain?
+What is the capital city of England?
+Why do shopping carts always have one bad wheel?
+What food do you only pretend to like?
+Why do pillows have favorite sides?
+What is the main language spoken in Mexico?
+What human rule makes absolutely no sense?
+What is your favorite weird animal fact?
+What is the smallest country in the world?
+Why do humans trust banks?
+What is the best thing at a dollar store?
+What sport uses a puck?
+Why does a microwave rotate food like a tiny ritual?
+What is your strongest food opinion?
+What is the best breakfast food?
+What is the capital city of Germany?
+What item in your house would confuse an alien the most?
+Why do humans keep old boxes from expensive things?
+What animal is known for building dams?
+Why do humans spend so much money on weddings?
+What is your least useful purchase?
+What is the hardest natural substance on Earth?
+What human sound is the most alarming?
+Why are vacuum cleaners so aggressive?
+What is the best smell on Earth?
+What is the worst smell on Earth?
+What is the capital city of Spain?
+What animal deserves to be worshipped?
+Why do humans say "no worries" when there are definitely worries?
+What is the largest country in the world by land area?
+What human snack has the most power?
+Why do birthdays require cake fire?
+What is one thing you refuse to throw away?
+What animal is famous for having a pouch?
+What is the weirdest gift you have ever received?
+What is the capital city of the United States?
+Why does toast feel more advanced than bread?
+What human fashion item makes the least sense?
+What is the largest rainforest in the world?
+Why do humans spray themselves with expensive smells?
+What is your go-to lazy meal?
+What animal is known as the king of the jungle?
+What is the best birthday party food?
+What game makes people rage quit fastest?
+What is the funniest animal on Earth?
+What is the capital city of Ireland?
+What human invention is both brilliant and stupid?
+Why do humans name cars?
+What is the largest island in the world?
+Why are babies so loud for such small creatures?
+What snack deserves its own holiday?
+What animal is known for black and white stripes?
+Why are shopping malls so easy to get lost in?
+What is your most unpopular movie opinion?
+What movie character has the most Squig energy?
+What is the capital city of Greece?
+Why is bubble wrap so satisfying?
+Why do humans clap when planes land?
+What is the smallest planet in our solar system?
+What food should be served at an alien meeting?
+What animal makes the best Earth ambassador?
+How many wheels does a tricycle have?
+What human habit should aliens copy first?
+What is the most dramatic thing humans do daily?
+What is the best cookie?
+What is the capital city of Egypt?
+Why do washing machines sound like they are preparing for launch?
+Why do humans keep decorative pillows that nobody can use?
+What is the largest bird in the world?
+Why are libraries so quiet?
+What is the most cursed food combo you enjoy?
+What do cows produce that humans drink?
+What is the best movie theater snack?
+What is one thing humans overcomplicate?
+What human food looks the most dangerous?
+What is the capital city of South Korea?
+What object could easily be mistaken for a weapon?
+Why do humans say "sleep like a baby" when babies wake up screaming?
+What is the tallest animal on Earth?
+Why are playgrounds full of tiny danger machines?
+What is your favorite ugly animal?
+What is 9 times 9?
+Why are trampolines legal?
+What human celebration makes the least sense?
+What is the best ice cream flavor?
+What is the capital city of Portugal?
+Why do humans wear sunglasses indoors?
+Why do humans wear socks and then lose one forever?
+What animal is known for its long memory?
+Why do calendars make time look organized?
+What app is the most addictive?
+What is the chemical symbol for oxygen?
+Why do remote controls always disappear?
+What is the weirdest thing humans eat with confidence?
+What food should never be offered to an alien?
+What is the capital city of China?
+Why do humans take mirror selfies?
+Why do humans say "literally" when they do not mean literally?
+What animal is known for laughing sounds?
+Why are school buses yellow?
+What is your most embarrassing comfort show?
+What is 12 divided by 3?
+What is the best concert snack?
+What human sound would make the best alarm?
+What human invention should come with a warning label?
+What is the capital city of Thailand?
+Why do shoes have so many rules?
+Why do humans own clothes they never wear?
+What animal has a trunk?
+What is the most dangerous aisle in a grocery store?
+What is the best gas station drink?
+What is the chemical symbol for silver?
+Why do lawn mowers sound so angry?
+What is one thing humans pretend to understand?
+What is the best sandwich?
+What is the capital city of Sweden?
+Why are fire alarms so disrespectful?
+Why do humans make beds they will just destroy later?
+What animal is known for eating bamboo?
+What is the weirdest thing about hospitals?
+What is the most dangerous snack because you cannot stop eating it?
+How many days are in a leap year?
+What human tradition would be hardest to explain?
+`.trim().split(/\r?\n/).map(q => q.trim()).filter(Boolean);
+
+const QUESTION_PROMPT_RESPONSES = `
+Ooh, that's UGLY.
+The portal approves this answer.
+Suspicious... but acceptable.
+This has been added to the Squig files.
+Earth continues to confuse me.
+That answer smells powerful.
+Ugly logic detected.
+I do not understand, but I respect it.
+This feels illegal on at least three planets.
+The Squigs are taking notes.
+That is disturbingly human.
+A deeply cursed answer. Well done.
+I fear you may be correct.
+That answer has teeth.
+The mothership is discussing this now.
+You have revealed too much.
+This is exactly why we keep watching.
+That answer belongs in a jar.
+I hate how much sense this makes.
+Ugly, but emotionally honest.
+This may require further probing.
+You have passed the vibe scan.
+I will report this to the portal.
+Strange answer. Strong aura.
+The Squig Council is unsettled.
+That is not normal, which means it is perfect.
+This answer has been marked as dangerous.
+Humans are worse than we thought.
+I support this nonsense.
+That answer just blinked at me.
+You may be part Squig.
+This feels like forbidden Earth knowledge.
+That is the kind of ugly we study.
+You answered like someone with snacks hidden nearby.
+This is why humans cannot be left unsupervised.
+The ugly math checks out.
+Weirdly wise. Annoyingly wise.
+This answer has portal energy.
+I accept this, but I do not trust it.
+The telescope saw this coming.
+That answer needs a warning label.
+Disgusting. Continue.
+I respect the chaos.
+You have pleased the ugly watchers.
+This has big "do not touch" energy.
+I am concerned, but impressed.
+The vibes are unpleasant. Excellent.
+This is now canon.
+I knew Earth was weird, but wow.
+A beautiful little disaster of an answer.
+`.trim().split(/\r?\n/).map(r => r.trim()).filter(Boolean);
+
+let questionPromptTimer = null;
+
+function getQuestionPromptState() {
+  const defaults = structuredClone(DEFAULT_STATE.global.questionPrompts);
+  state.global.questionPrompts = {
+    ...defaults,
+    ...(state.global.questionPrompts || {}),
+    activeMessages: {
+      ...defaults.activeMessages,
+      ...((state.global.questionPrompts || {}).activeMessages || {})
+    }
+  };
+  return state.global.questionPrompts;
+}
+
+function shuffleIndices(count) {
+  const indices = Array.from({ length: count }, (_, i) => i);
+  for (let i = indices.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [indices[i], indices[j]] = [indices[j], indices[i]];
+  }
+  return indices;
+}
+
+function ensureQuestionPromptSchedule(now) {
+  const qp = getQuestionPromptState();
+  if (!qp.nextAskTs) {
+    qp.nextAskTs = now + randBetween(QUESTION_PROMPT_MIN_MS, QUESTION_PROMPT_MAX_MS);
+    scheduleSave();
+  }
+}
+
+function bumpQuestionPromptSchedule(now) {
+  const qp = getQuestionPromptState();
+  qp.nextAskTs = now + randBetween(QUESTION_PROMPT_MIN_MS, QUESTION_PROMPT_MAX_MS);
+  scheduleSave();
+}
+
+function pruneQuestionPromptMessages(now) {
+  const qp = getQuestionPromptState();
+  const entries = Object.entries(qp.activeMessages || {})
+    .filter(([, meta]) => now - (meta.sentTs || 0) <= QUESTION_PROMPT_ACTIVE_TTL_MS)
+    .sort((a, b) => (b[1].sentTs || 0) - (a[1].sentTs || 0))
+    .slice(0, QUESTION_PROMPT_ACTIVE_LIMIT);
+
+  qp.activeMessages = Object.fromEntries(entries);
+}
+
+function nextQuestionPrompt() {
+  const qp = getQuestionPromptState();
+  if (!Array.isArray(qp.order)) qp.order = [];
+  qp.order = qp.order.filter(i => Number.isInteger(i) && i >= 0 && i < QUESTION_PROMPTS.length);
+
+  if (!qp.order.length) {
+    qp.order = shuffleIndices(QUESTION_PROMPTS.length);
+  }
+
+  const index = qp.order.shift();
+  scheduleSave();
+  return { index, text: QUESTION_PROMPTS[index] };
+}
+
+function trackQuestionPromptActivity(message, now) {
+  if (message.channel.id !== QUESTION_PROMPT_CHANNEL_ID) return;
+  const qp = getQuestionPromptState();
+  qp.lastActivityTs = now;
+  qp.lastMessageWasQuestion = looksLikeQuestion(message.content || '');
+  scheduleSave();
+}
+
+function canAskQuestionPrompt(channel, now) {
+  if (!channel || channel.id !== QUESTION_PROMPT_CHANNEL_ID || !channel.isTextBased()) return false;
+  if (!isChannelAllowed(channel)) return false;
+  if (isQuietModeActive(now) || isObservationGapActive(now)) return false;
+
+  const qp = getQuestionPromptState();
+  if (!qp.lastActivityTs || now - qp.lastActivityTs > QUESTION_PROMPT_ACTIVITY_WINDOW_MS) return false;
+  if (qp.lastMessageWasQuestion) return false;
+
+  const channelState = getChannelState(channel.id);
+  if ((channelState.humanMessagesSinceBot || 0) < QUESTION_PROMPT_MIN_HUMAN_MESSAGES_AFTER_BOT) return false;
+
+  return true;
+}
+
+async function maybeAskScheduledQuestionPrompt(now = Date.now()) {
+  const qp = getQuestionPromptState();
+  if (qp.enabled === false) return false;
+  ensureQuestionPromptSchedule(now);
+  if (now < qp.nextAskTs) return false;
+
+  bumpQuestionPromptSchedule(now);
+
+  const channel = client.channels.cache.get(QUESTION_PROMPT_CHANNEL_ID) ||
+    await client.channels.fetch(QUESTION_PROMPT_CHANNEL_ID).catch(() => null);
+  if (!canAskQuestionPrompt(channel, now)) return false;
+
+  const prompt = nextQuestionPrompt();
+  const sent = await channel.send(`INSQ ${prompt.text}`).catch(() => null);
+  if (!sent) return false;
+
+  const channelState = getChannelState(channel.id);
+  markBotSpoke(channelState, now);
+
+  qp.activeMessages[sent.id] = {
+    sentTs: now,
+    questionIndex: prompt.index,
+    responses: 0
+  };
+  pruneQuestionPromptMessages(now);
+  scheduleSave();
+  return true;
+}
+
+function scheduleQuestionPromptTimer() {
+  if (questionPromptTimer) clearTimeout(questionPromptTimer);
+
+  const now = Date.now();
+  const qp = getQuestionPromptState();
+  if (qp.enabled === false) return;
+
+  ensureQuestionPromptSchedule(now);
+
+  const delay = Math.max(5000, qp.nextAskTs - now);
+  questionPromptTimer = setTimeout(async () => {
+    questionPromptTimer = null;
+    await maybeAskScheduledQuestionPrompt(Date.now()).catch(() => {});
+    scheduleQuestionPromptTimer();
+  }, delay);
+}
+
+async function maybeRespondToQuestionPromptReply(message, referencedMessage, now) {
+  if (message.channel.id !== QUESTION_PROMPT_CHANNEL_ID) return false;
+  if (!referencedMessage || referencedMessage.author?.id !== client.user.id) return false;
+
+  const qp = getQuestionPromptState();
+  if (qp.enabled === false) return false;
+  const promptMeta = qp.activeMessages?.[referencedMessage.id];
+  if (!promptMeta) return false;
+  if ((promptMeta.responses || 0) >= QUESTION_PROMPT_MAX_RESPONSES) return false;
+  if (now - (qp.responseLastTs || 0) < QUESTION_PROMPT_REPLY_COOLDOWN_MS) return false;
+
+  const text = pick(QUESTION_PROMPT_RESPONSES);
+  const sent = await message.reply(text).catch(() => null);
+  if (!sent) return false;
+
+  promptMeta.responses = (promptMeta.responses || 0) + 1;
+  promptMeta.lastResponseTs = now;
+  qp.responseLastTs = now;
+  markBotSpoke(getChannelState(message.channel.id), now);
+  pruneQuestionPromptMessages(now);
+  scheduleSave();
+  return true;
+}
+
 const questionCooldowns = new Map();
-const mentionCooldowns = new Map();
 const uglyDogCooldowns = new Map();
 
 /** --- Trigger detection helpers --- **/
@@ -907,25 +1282,6 @@ async function attemptSpeak({ kind, message, channel, text, reply }) {
   }
 }
 
-/** --- Help nudges (direct only) --- **/
-const helpNudgeLines = [
-  "INSQ Try `/insquig help` and pick a topic (mint / uglydex / commands).",
-  "If you want a clean answer, use `/insquig help` and choose a topic.",
-  "Give me a topic. `/insquig help` is the short path."
-];
-
-async function maybeHelpNudge(message) {
-  if (!looksLikeStruggle(message.content)) return false;
-  if (!userCooldownOk(directCooldowns, message.author.id, DIRECT_USER_COOLDOWN_S)) return false;
-  return attemptSpeak({
-    kind: 'direct',
-    message,
-    channel: message.channel,
-    text: pick(helpNudgeLines),
-    reply: true
-  });
-}
-
 /** --- Observation gap completion line --- **/
 async function maybeSendObservationGapComplete(message, now) {
   const obs = state.global.observation;
@@ -963,25 +1319,23 @@ client.once(Events.ClientReady, async () => {
     .addStringOption(o => o.setName('message').setDescription('What should Squig say?').setRequired(true))
     .addAttachmentOption(o => o.setName('image').setDescription('Optional image to include'));
 
+  const question = new SlashCommandBuilder()
+    .setName('question')
+    .setDescription('Toggle InSquignito question prompts')
+    .addSubcommand(sc =>
+      sc
+        .setName('on')
+        .setDescription('Turn question prompts on')
+    )
+    .addSubcommand(sc =>
+      sc
+        .setName('off')
+        .setDescription('Turn question prompts off')
+    );
+
   const insquig = new SlashCommandBuilder()
     .setName('insquig')
     .setDescription('InSquignito utilities')
-    .addSubcommand(sc =>
-      sc
-        .setName('help')
-        .setDescription('Get help in a suspiciously useful way')
-        .addStringOption(o =>
-          o
-            .setName('topic')
-            .setDescription('What do you need?')
-            .setRequired(true)
-            .addChoices(
-              { name: 'mint', value: 'mint' },
-              { name: 'uglydex', value: 'uglydex' },
-              { name: 'commands', value: 'commands' }
-            )
-        )
-    )
     .addSubcommand(sc =>
       sc
         .setName('status')
@@ -1047,17 +1401,20 @@ client.once(Events.ClientReady, async () => {
         )
     );
 
-  await client.application.commands.set([squigsay, insquig]);
+  await client.application.commands.set([squigsay, insquig, question]);
 
   const devGuild = client.guilds.cache.get('1290584204689801267');
-  if (devGuild) await devGuild.commands.set([squigsay, insquig]);
+  if (devGuild) await devGuild.commands.set([squigsay, insquig, question]);
 
   // Periodic state upkeep
   setInterval(() => {
     const now = Date.now();
     ensureStateSchedule(now);
     ensureObservationSchedule(now);
+    ensureQuestionPromptSchedule(now);
   }, 60 * 60 * 1000);
+
+  scheduleQuestionPromptTimer();
 
   console.log('? Slash commands registered');
 });
@@ -1081,7 +1438,17 @@ client.on(Events.MessageCreate, async (message) => {
   userState.messageCount += 1;
   userState.lastSeen = now;
   updateChannelActivity(channelState, message.author.id, now, prevHumanGapMs);
+  trackQuestionPromptActivity(message, now);
   scheduleSave();
+
+  let referencedMessage = null;
+  if (message.reference) {
+    referencedMessage = await message.fetchReference().catch(() => null);
+  }
+  const repliedToQuestionPrompt = !!(
+    referencedMessage &&
+    getQuestionPromptState().activeMessages?.[referencedMessage.id]
+  );
 
   // Tripwire (quiet): detect suspicious content and alert mods
   let tripwireTriggered = false;
@@ -1120,7 +1487,13 @@ client.on(Events.MessageCreate, async (message) => {
     if (did) spokeThisMessage = true;
   }
 
-  /** 1) Sticker panic (direct, stricter cooldown) **/
+  /** 1) Replies to scheduled question prompts **/
+  if (!spokeThisMessage) {
+    const did = await maybeRespondToQuestionPromptReply(message, referencedMessage, now);
+    if (did) spokeThisMessage = true;
+  }
+
+  /** 2) Sticker panic (direct, stricter cooldown) **/
   if (!spokeThisMessage && message.stickers && message.stickers.size > 0) {
     const usedSticker = message.stickers.first();
     const last = uglyDogCooldowns.get(channel.id) || 0;
@@ -1141,10 +1514,10 @@ client.on(Events.MessageCreate, async (message) => {
     }
   }
 
-  /** 2) Reply-to-bot questions (direct) **/
-  if (!spokeThisMessage && message.reference && content.includes("?")) {
+  /** 3) Reply-to-bot questions (direct) **/
+  if (!spokeThisMessage && message.reference && content.includes("?") && !repliedToQuestionPrompt) {
     try {
-      const ref = await message.fetchReference();
+      const ref = referencedMessage;
       if (ref?.author?.id === client.user.id) {
         const userOk = userCooldownOk(questionCooldowns, message.author.id, QUESTION_COOLDOWN_SECONDS);
         if (userOk) {
@@ -1172,13 +1545,9 @@ client.on(Events.MessageCreate, async (message) => {
     }
   }
 
-  /** 3) Direct mentions / replies (help nudges only) **/
+  /** 4) Direct mentions / replies **/
   let repliedToBot = false;
-  try {
-    repliedToBot = !!(message.reference && (await message.fetchReference()).author.id === client.user.id);
-  } catch {
-    repliedToBot = false;
-  }
+  repliedToBot = !!(referencedMessage?.author?.id === client.user.id);
 
   const mentionedInSquig =
     content.includes("insquignito") ||
@@ -1189,33 +1558,13 @@ client.on(Events.MessageCreate, async (message) => {
   const baitAttempt = isBaitAttempt(message, content);
 
   if (!spokeThisMessage && (mentionedInSquig || repliedToBot)) {
-    // If it's bait, go colder or stay silent (unless theyre asking for help)
-    if (!looksLikeQuestion(raw) && baitAttempt && !looksLikeStruggle(raw)) {
+    if (!looksLikeQuestion(raw) && baitAttempt) {
       return;
     }
-
-    if (userCooldownOk(mentionCooldowns, message.author.id, MENTION_COOLDOWN_SECONDS)) {
-      if (isVagueHelp(raw)) {
-        const did = await attemptSpeak({
-          kind: 'direct',
-          message,
-          channel,
-          text: "INSQ Pick a topic: mint / uglydex / commands. Then use `/insquig help`.",
-          reply: true
-        });
-        if (did) spokeThisMessage = true;
-      }
-
-      if (!spokeThisMessage) {
-        const did = await maybeHelpNudge(message);
-        if (did) spokeThisMessage = true;
-      }
-    }
-
     return;
   }
 
-  /** 4) Ambient triggers (contextual + rare) **/
+  /** 5) Ambient triggers (contextual + rare) **/
   if (!spokeThisMessage) {
     const isReturn = prevLastSeen && (now - prevLastSeen >= RETURN_INACTIVITY_MS);
     const isQuestion = looksLikeQuestion(raw);
@@ -1283,6 +1632,15 @@ client.on(Events.MessageCreate, async (message) => {
       }
     }
   }
+
+  if (!spokeThisMessage && channel.id === QUESTION_PROMPT_CHANNEL_ID) {
+    const qp = getQuestionPromptState();
+    if (now >= (qp.nextAskTs || 0)) {
+      const did = await maybeAskScheduledQuestionPrompt(now);
+      scheduleQuestionPromptTimer();
+      if (did) spokeThisMessage = true;
+    }
+  }
 });
 
 /** --- /squigsay + /insquig --- **/
@@ -1309,15 +1667,36 @@ client.on(Events.InteractionCreate, async (interaction) => {
     return;
   }
 
-  if (interaction.commandName === 'insquig') {
-    const sub = interaction.options.getSubcommand();
-
-    if (sub === 'help') {
-      const topic = interaction.options.getString('topic', true);
-      const text = formatHelp(topic);
-      await interaction.reply({ content: text }).catch(() => {});
+  if (interaction.commandName === 'question') {
+    const isAdmin = interaction.memberPermissions?.has(PermissionsBitField.Flags.Administrator);
+    if (!isAdmin) {
+      await interaction.reply({ content: "Admin-only.", ephemeral: true });
       return;
     }
+
+    const sub = interaction.options.getSubcommand();
+    const qp = getQuestionPromptState();
+
+    if (sub === 'on') {
+      qp.enabled = true;
+      qp.nextAskTs = Date.now() + randBetween(QUESTION_PROMPT_MIN_MS, QUESTION_PROMPT_MAX_MS);
+      scheduleSave();
+      scheduleQuestionPromptTimer();
+      await interaction.reply({ content: "Question prompts: on.", ephemeral: true }).catch(() => {});
+      return;
+    }
+
+    if (sub === 'off') {
+      qp.enabled = false;
+      scheduleSave();
+      scheduleQuestionPromptTimer();
+      await interaction.reply({ content: "Question prompts: off.", ephemeral: true }).catch(() => {});
+      return;
+    }
+  }
+
+  if (interaction.commandName === 'insquig') {
+    const sub = interaction.options.getSubcommand();
 
     if (sub === 'status') {
       const now = Date.now();
