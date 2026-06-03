@@ -714,8 +714,6 @@ const QUESTION_PROMPT_MIN_MS = 20 * 60 * 1000;
 const QUESTION_PROMPT_MAX_MS = 4 * HOUR_MS;
 const QUESTION_PROMPT_ACTIVITY_WINDOW_MS = 90 * 60 * 1000;
 const QUESTION_PROMPT_MIN_HUMAN_MESSAGES_AFTER_BOT = 3;
-const QUESTION_PROMPT_REPLY_COOLDOWN_MS = 90 * 1000;
-const QUESTION_PROMPT_MAX_RESPONSES = 5;
 const QUESTION_PROMPT_ACTIVE_TTL_MS = 24 * HOUR_MS;
 const QUESTION_PROMPT_ACTIVE_LIMIT = 20;
 
@@ -1022,6 +1020,56 @@ The vibes are unpleasant. Excellent.
 This is now canon.
 I knew Earth was weird, but wow.
 A beautiful little disaster of an answer.
+Oh, I was just curious.
+Interesting. No reason.
+Noted. For normal reasons.
+I simply wanted to know.
+That answers my question.
+Good to know. Moving on.
+Hmm. Okay. Very human.
+I will think about this briefly.
+That is all I needed.
+No follow-up questions at this time.
+Perfect. Just checking.
+I had a feeling.
+That makes sense. Sort of.
+I see. I think.
+This is useful information.
+Thank you for your honesty.
+I was not judging. Much.
+That seems normal here.
+I understand approximately 40% of that.
+Great. Totally casual question.
+Excellent. No concerns.
+I will store this nowhere suspicious.
+Fine answer. Very Earth.
+That clears up almost nothing.
+Appreciated, human.
+I was wondering about that.
+Okay, so that is allowed here.
+Good. Good. Good.
+I am learning so much against my will.
+That is acceptable information.
+I do not know why I asked.
+Makes sense if I do not think too hard.
+Thank you. The curiosity has passed.
+I expected worse.
+That is probably fine.
+Cool. Very normal planet.
+Great. Mystery reduced slightly.
+I understand less, but with confidence.
+No reason this needed to be asked.
+I am satisfied enough.
+Fine. I will stop staring.
+Good answer. Weird species.
+That was for science, probably.
+I asked because I care about data.
+Okay. Filing that under "human stuff."
+That response has been calmly received.
+I will not overreact to this.
+This information changes very little.
+Nice. I can now continue lurking.
+Wonderful. Curiosity temporarily defeated.
 `.trim().split(/\r?\n/).map(r => r.trim()).filter(Boolean);
 
 let questionPromptTimer = null;
@@ -1139,6 +1187,7 @@ async function sendQuestionPrompt(channel, now = Date.now(), options = {}) {
     sentTs: now,
     questionIndex: prompt.index,
     responses: 0,
+    responseUserIds: [],
     manual: !!options.manual
   };
   pruneQuestionPromptMessages(now);
@@ -1171,13 +1220,15 @@ async function maybeRespondToQuestionPromptReply(message, referencedMessage, now
   const promptMeta = qp.activeMessages?.[referencedMessage.id];
   if (!promptMeta) return false;
   if (qp.enabled === false && !promptMeta.manual) return false;
-  if ((promptMeta.responses || 0) >= QUESTION_PROMPT_MAX_RESPONSES) return false;
-  if (now - (qp.responseLastTs || 0) < QUESTION_PROMPT_REPLY_COOLDOWN_MS) return false;
+
+  if (!Array.isArray(promptMeta.responseUserIds)) promptMeta.responseUserIds = [];
+  if (promptMeta.responseUserIds.includes(message.author.id)) return false;
 
   const text = pick(QUESTION_PROMPT_RESPONSES);
   const sent = await message.reply(text).catch(() => null);
   if (!sent) return false;
 
+  promptMeta.responseUserIds.push(message.author.id);
   promptMeta.responses = (promptMeta.responses || 0) + 1;
   promptMeta.lastResponseTs = now;
   qp.responseLastTs = now;
@@ -1494,15 +1545,15 @@ client.on(Events.MessageCreate, async (message) => {
   // One automatic output per incoming message
   let spokeThisMessage = false;
 
-  // Observation gap completion (ambient-safe, can be skipped)
-  if (!spokeThisMessage) {
-    const did = await maybeSendObservationGapComplete(message, now);
-    if (did) spokeThisMessage = true;
-  }
-
   /** 1) Replies to scheduled question prompts **/
   if (!spokeThisMessage) {
     const did = await maybeRespondToQuestionPromptReply(message, referencedMessage, now);
+    if (did) spokeThisMessage = true;
+  }
+
+  // Observation gap completion (ambient-safe, can be skipped)
+  if (!spokeThisMessage) {
+    const did = await maybeSendObservationGapComplete(message, now);
     if (did) spokeThisMessage = true;
   }
 
