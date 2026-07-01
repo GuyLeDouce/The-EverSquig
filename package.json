@@ -1,10 +1,12 @@
 {
-  "name": "charm-of-the-ugly-bot",
+  "name": "the-eversquig-insquignito",
   "version": "1.0.0",
-  "description": "A Discord bot for displaying random Charm of the Ugly NFTs",
+  "description": "InSquignito, the weird little Squigs Reloaded Discord watcher.",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "check": "node --check index.js",
+    "test": "node --test"
   },
   "dependencies": {
     "discord.js": "^14.11.0",
