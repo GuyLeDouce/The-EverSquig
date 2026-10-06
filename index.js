@@ -4,7 +4,7 @@ const logger = require('./src/logger');
 const { createStateStore } = require('./src/stateStore');
 const { registerCommands } = require('./src/commands/registerCommands');
 const { handleInteraction } = require('./src/commands/handleInteraction');
-const { classifyMessage, looksLikeQuestion } = require('./src/insquignito/triggerClassifier');
+const { classifyMessage, looksLikeQuestion, shouldIgnoreMessage } = require('./src/insquignito/triggerClassifier');
 const { decideInSquignitoAction } = require('./src/insquignito/personality');
 const { speak } = require('./src/insquignito/speaker');
 const { updateActivity } = require('./src/insquignito/cooldowns');
@@ -62,7 +62,7 @@ client.once(Events.ClientReady, async () => {
 });
 
 client.on(Events.MessageCreate, async (message) => {
-  if (message.author.bot) return;
+  if (shouldIgnoreMessage(message, client.user.id)) return;
 
   const now = Date.now();
   const state = store.getState();

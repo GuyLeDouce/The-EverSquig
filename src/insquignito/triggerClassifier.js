@@ -1,3 +1,7 @@
+function shouldIgnoreMessage(message, botId) {
+  return !!(message.author.bot || message.webhookId || (botId && message.author.id === botId));
+}
+
 function extractDomains(text) {
   const t = String(text || '').toLowerCase();
   const urlLike = t.match(/(?:https?:\/\/)?(?:www\.)?[a-z0-9.-]+\.[a-z]{2,}(?:\/[^\s]*)?/g) || [];
@@ -63,7 +67,7 @@ function classifyMessage(input = {}) {
   const direct = !!input.mentionsBot || mentionsName;
   if (direct) triggers.add('direct_mention');
   if (input.isReplyToBot) triggers.add('reply_to_bot');
-  if (/\bgm\b|good morning/.test(t)) triggers.add('gm');
+  if (/(?<![\p{L}\p{N}_])(?:gm|good\s+morning)(?![\p{L}\p{N}_])/iu.test(content)) triggers.add('gm');
   if (/\bgn\b|good night|goodnight/.test(t)) triggers.add('gn');
   if (/\bfloor\b|floor price|fp\b/.test(t)) triggers.add('floor');
   if (/\bsweep|swept|sweeping\b/.test(t)) triggers.add('sweep');
@@ -126,6 +130,7 @@ function classifyMessage(input = {}) {
 }
 
 module.exports = {
+  shouldIgnoreMessage,
   classifyMessage,
   extractDomains,
   looksLikeQuestion,

@@ -1,0 +1,233 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const { classifyMessage, shouldIgnoreMessage } = require('../src/insquignito/triggerClassifier');
+const { decideInSquignitoAction } = require('../src/insquignito/personality');
+const { canSpeak, recordResponse, updateActivity } = require('../src/insquignito/cooldowns');
+const { speak } = require('../src/insquignito/speaker');
+const { pools } = require('../src/insquignito/responseLibrary');
+const { mergeState } = require('../src/stateStore');
+const {
+  responses, settings, isTrickOrTreatGmActive, TRICK_OR_TREAT_GM_MODE,
+  TRICK_OR_TREAT_GM_START_DATE, TRICK_OR_TREAT_GM_END_DATE, TRICK_OR_TREAT_CHANNEL_URL
+} = require('../src/insquignito/trickOrTreatGm');
+
+const october = Date.parse('2026-10-30T12:00:00-04:00');
+const config = {
+  defaultIntensity: 'normal',
+  channelNameDenyContains: ['rules', 'admin'],
+  channelAllowlist: [],
+  channelDenylist: [],
+  cooldowns: { channelMs: 2700000, directUserMs: 120000, categoryMs: 3600000, ambientGlobalMinMs: 21600000, ambientGlobalMaxMs: 43200000 },
+  gates: { minHumanMessagesAfterBot: 8, burstAfterSilenceMs: 100000, burstWindowMs: 10000 }
+};
+
+function context(overrides = {}) {
+  return {
+    classification: classifyMessage({ content: 'GM everyone', config }),
+    content: 'GM everyone',
+    channelState: { humanMessagesSinceBot: 99, recentResponses: [], recentOpenings: [] },
+    userState: {},
+    state: mergeState({}),
+    config,
+    now: october,
+    random: () => 0.1,
+    ...overrides
+  };
+}
+
+function gate(ctx, overrides = {}) {
+  return canSpeak({ ...ctx, mode: TRICK_OR_TREAT_GM_MODE, category: TRICK_OR_TREAT_GM_MODE, channel: { id: 'c1', name: 'general' }, ...overrides });
+}
+
+function delivery(ctx = context()) {
+  const calls = [];
+  return {
+    ...ctx,
+    action: decideInSquignitoAction(ctx),
+    message: { author: { id: 'u1', bot: false }, client: { user: { id: 'bot' } }, reply: async (payload) => { calls.push(payload); return {}; } },
+    channel: { id: 'c1', name: 'general', send: async (payload) => { calls.push(payload); return {}; } },
+    store: { markDirty: () => {} },
+    calls
+  };
+}
+
+for (const content of ['GM', 'gm', 'Gm', 'Good Morning', 'GOOD MORNING', 'good morning everyone', 'GM everyone', 'GM ugly fkrs', 'Good morning!', 'Good morning everyone ☕️', '☕️GM!!!', '**GM**', 'hey, gm everyone', 'good   morning']) {
+  test(`GM matching: ${content}`, () => {
+    assert.equal(classifyMessage({ content, config }).primary, 'gm');
+  });
+}
+
+for (const content of ['segment', 'dogma', 'sigma', 'pragmatic', 'gmorning', 'gm123', '_gm_', 'égm', 'good mornings', 'notgood morning', 'hello everyone']) {
+  test(`does not mistake a substring for a greeting: ${content}`, () => {
+    assert.equal(classifyMessage({ content, config }).triggers.includes('gm'), false);
+  });
+}
+
+test('all 30 unique reminders have the exact plain URL and preserved example text', () => {
+  assert.equal(responses.length, 30);
+  assert.equal(new Set(responses).size, 30);
+  for (const response of responses) {
+    assert.ok(response.endsWith(`\n${TRICK_OR_TREAT_CHANNEL_URL}`));
+    assert.equal(response.split(TRICK_OR_TREAT_CHANNEL_URL).length, 2);
+  }
+  assert.equal(responses[0], `GM ☕️ Looking extra Ugly this morning 👀\n\nI left you a TREAT 🍬\n${TRICK_OR_TREAT_CHANNEL_URL}`);
+  assert.equal(responses[26], `GM ☕️\n\nYour daily dose of caffeine and questionable decisions starts now.\n\nFirst, TREAT. 🍭\n${TRICK_OR_TREAT_CHANNEL_URL}`);
+});
+
+test('Toronto October boundaries are inclusive through October 30 and never recur', () => {
+  const start = Date.parse(TRICK_OR_TREAT_GM_START_DATE);
+  const end = Date.parse(TRICK_OR_TREAT_GM_END_DATE);
+  assert.equal(isTrickOrTreatGmActive(start - 1), false);
+  assert.equal(isTrickOrTreatGmActive(start), true);
+  assert.equal(isTrickOrTreatGmActive(october), true);
+  assert.equal(isTrickOrTreatGmActive(end - 1), true);
+  assert.equal(isTrickOrTreatGmActive(end), false);
+  assert.equal(isTrickOrTreatGmActive(Date.parse('2027-10-10T12:00:00Z')), false);
+  assert.equal(isTrickOrTreatGmActive(Date.parse('2026-10-31T03:00:00Z')), true);
+});
+
+test('existing probability and intensity still control event frequency', () => {
+  assert.equal(decideInSquignitoAction(context({ random: () => 0.34 })).mode, TRICK_OR_TREAT_GM_MODE);
+  assert.equal(decideInSquignitoAction(context({ random: () => 0.35 })).shouldSpeak, false);
+  const low = context({ random: () => 0.2 });
+  low.state.global.intensity = 'low';
+  assert.equal(decideInSquignitoAction(low).shouldSpeak, false);
+});
+
+test('random selection can reach every reminder and excludes last event even with exhausted history', () => {
+  const selected = new Set();
+  for (let i = 0; i < responses.length; i++) {
+    let call = 0;
+    const action = decideInSquignitoAction(context({ random: () => call++ === 0 ? 0 : (i + 0.5) / responses.length }));
+    selected.add(action.responseText);
+  }
+  assert.deepEqual(selected, new Set(responses));
+  const ctx = context({ random: () => 0 });
+  ctx.state.global.recentResponses = [...responses];
+  ctx.state.global.trickOrTreatGmLastResponse = responses[0];
+  assert.notEqual(decideInSquignitoAction(ctx).responseText, responses[0]);
+});
+
+test('outside event, original GM pool and ambient gates resume', () => {
+  for (const now of [Date.parse(TRICK_OR_TREAT_GM_START_DATE) - 1, Date.parse(TRICK_OR_TREAT_GM_END_DATE)]) {
+    const ctx = context({ now });
+    const action = decideInSquignitoAction(ctx);
+    assert.equal(action.mode, 'ambient');
+    assert.equal(action.category, 'gm');
+    assert.ok(pools.gm.includes(action.responseText));
+    ctx.state.global.ambientNextEligibleTs = now + 1;
+    assert.equal(gate(ctx, { mode: action.mode, category: action.category }).reason, 'global_ambient_cooldown');
+  }
+});
+
+test('direct, moderation, dog, GN and other existing priorities remain identical during event', () => {
+  for (const content of ['GM InSquignito', 'GM my seed phrase', 'GN', 'portal is watching', 'GM https://bad.example']) {
+    const classification = classifyMessage({ content, config });
+    const during = decideInSquignitoAction(context({ content, classification }));
+    const after = decideInSquignitoAction(context({ content, classification, now: Date.parse(TRICK_OR_TREAT_GM_END_DATE) }));
+    assert.deepEqual(during, after);
+  }
+  const dog = context({ classification: { primary: 'dogPanic', triggers: ['gm', 'sticker_ugly_dog'] } });
+  assert.equal(decideInSquignitoAction(dog).category, 'dogPanic');
+  const silent = context();
+  silent.state.global.mood = 'silent';
+  assert.equal(decideInSquignitoAction(silent).shouldSpeak, false);
+});
+
+test('event reuses quiet and channel gates without 6–12 hour ambient/category blocking', () => {
+  const ctx = context();
+  ctx.state.global.ambientNextEligibleTs = october + 43200000;
+  ctx.state.global.categoryLastTs.gm = october;
+  assert.equal(gate(ctx).ok, true);
+  ctx.state.global.quietUntilTs = october + 1;
+  assert.equal(gate(ctx).reason, 'quiet_mode');
+  ctx.state.global.quietUntilTs = 0;
+  assert.equal(gate(ctx, { channel: { id: 'c1', name: 'rules' } }).reason, 'channel_blocked');
+  assert.equal(gate(ctx, { config: { ...config, channelDenylist: ['c1'] } }).ok, false);
+  assert.equal(gate(ctx, { config: { ...config, channelAllowlist: ['other'] } }).ok, false);
+  ctx.channelState.allow = false;
+  assert.equal(gate(ctx).ok, false);
+});
+
+test('global, channel, user and human-message cooldowns work at their exact boundaries', () => {
+  const ctx = context();
+  recordResponse({ ...ctx, text: responses[0], mode: TRICK_OR_TREAT_GM_MODE, category: TRICK_OR_TREAT_GM_MODE });
+  const other = { channelState: { humanMessagesSinceBot: 99 }, userState: {} };
+  assert.equal(gate(ctx, { ...other, now: october + settings.globalMs - 1 }).reason, 'event_global_cooldown');
+  assert.equal(gate(ctx, { ...other, now: october + settings.globalMs }).ok, true);
+  ctx.channelState.humanMessagesSinceBot = 99;
+  assert.equal(gate(ctx, { userState: {}, now: october + settings.channelMs - 1 }).reason, 'channel_cooldown');
+  assert.equal(gate(ctx, { userState: {}, now: october + settings.channelMs }).ok, true);
+  assert.equal(gate(ctx, { now: october + settings.userMs - 1 }).reason, 'event_user_cooldown');
+  assert.equal(gate(ctx, { now: october + settings.userMs }).ok, true);
+  ctx.channelState.humanMessagesSinceBot = 1;
+  assert.equal(gate(ctx, { now: october + settings.userMs }).reason, 'not_enough_human_messages');
+  updateActivity(ctx.channelState, ctx.userState, 'u1', october + settings.userMs, config);
+  assert.equal(gate(ctx, { now: october + settings.userMs }).ok, true);
+  assert.equal(ctx.state.global.ambientNextEligibleTs, 0);
+  assert.equal(ctx.userState.lastDirectTs, undefined);
+  const restored = mergeState(JSON.parse(JSON.stringify({ ...ctx.state, users: { u1: ctx.userState } })));
+  assert.equal(restored.users.u1.lastTrickOrTreatGmTs, october);
+  assert.equal(restored.global.trickOrTreatGmLastResponse, responses[0]);
+});
+
+test('message guard and speaker ignore bots, self even without bot flag, and webhooks', async () => {
+  for (const changes of [{ author: { id: 'otherBot', bot: true } }, { author: { id: 'bot', bot: false } }, { webhookId: 'hook' }]) {
+    const args = delivery();
+    Object.assign(args.message, changes);
+    assert.equal(shouldIgnoreMessage(args.message, 'bot'), true);
+    assert.equal(await speak(args), false);
+    assert.equal(args.calls.length, 0);
+  }
+  assert.equal(shouldIgnoreMessage(delivery().message, 'bot'), false);
+});
+
+test('single reply, no ping, cooldown persistence and no recursive trigger', async () => {
+  const args = delivery();
+  assert.equal(await speak(args), true);
+  assert.deepEqual(args.calls, [{ content: args.action.responseText, allowedMentions: { parse: [], repliedUser: false } }]);
+  assert.equal(args.userState.lastTrickOrTreatGmTs, october);
+  assert.equal(await speak(args), false);
+  assert.equal(args.calls.length, 1);
+  assert.equal(shouldIgnoreMessage({ author: { id: 'bot', bot: true }, content: args.calls[0].content }, 'bot'), true);
+});
+
+test('simultaneous GM wave cannot send two reminders; failed send releases reservation', async () => {
+  const args = delivery();
+  let finish;
+  args.message.reply = () => new Promise((resolve) => { finish = resolve; });
+  const first = speak(args);
+  const other = delivery(context({ state: args.state }));
+  assert.equal(await speak(other), false);
+  finish(null);
+  assert.equal(await first, false);
+  assert.equal(args.userState.lastTrickOrTreatGmTs, undefined);
+  assert.equal(await speak(other), true);
+});
+
+test('Discord rejection records no cooldown and allows retry', async () => {
+  const args = delivery();
+  args.message.reply = async () => { throw new Error('missing permissions'); };
+  assert.equal(await speak(args), false);
+  assert.equal(args.userState.lastTrickOrTreatGmTs, undefined);
+  const retry = delivery(context({ state: args.state }));
+  assert.equal(await speak(retry), true);
+});
+
+test('send-time expiry blocks action selected just before midnight', async () => {
+  const args = delivery(context({ now: Date.parse(TRICK_OR_TREAT_GM_END_DATE) - 1 }));
+  args.now = Date.parse(TRICK_OR_TREAT_GM_END_DATE);
+  assert.equal(await speak(args), false);
+  assert.equal(args.calls.length, 0);
+});
+
+test('speaker retains original direct replies and ambient channel sends', async () => {
+  for (const mode of ['direct', 'ambient']) {
+    const args = delivery();
+    args.action = { shouldSpeak: true, mode, category: 'portal', responseText: 'original response' };
+    args.message.reply = async (text) => { args.calls.push(['reply', text]); return {}; };
+    args.channel.send = async (text) => { args.calls.push(['send', text]); return {}; };
+    assert.equal(await speak(args), true);
+    assert.deepEqual(args.calls, [[mode === 'direct' ? 'reply' : 'send', 'original response']]);
+  }
+});
