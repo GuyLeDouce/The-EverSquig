@@ -1,5 +1,6 @@
 const { pools, selectFromPool } = require('./responseLibrary');
 const { answerKnownProjectQuestion, projectKnowledge } = require('./projectKnowledge');
+const { responses, isTrickOrTreatGmActive, TRICK_OR_TREAT_GM_MODE } = require('./trickOrTreatGm');
 
 const moods = ['lurking', 'judging', 'suspicious', 'impressed', 'offended', 'excited', 'confused', 'unhinged', 'helpful_weird', 'silent'];
 
@@ -126,6 +127,18 @@ function decideInSquignitoAction(context) {
   }
 
   const category = classification.primary;
+  if (category === 'gm' && isTrickOrTreatGmActive(context.now)) {
+    const pool = responses.filter((text) => text !== context.state.global.trickOrTreatGmLastResponse);
+    return {
+      shouldSpeak: true,
+      mode: TRICK_OR_TREAT_GM_MODE,
+      category: TRICK_OR_TREAT_GM_MODE,
+      mood,
+      responseText: selectFromPool(pool, history, vars, random),
+      reason: 'october_gm',
+      cooldownKey: TRICK_OR_TREAT_GM_MODE
+    };
+  }
   const responseText = selectFromPool(pools[category] || pools.portal, history, vars, random);
   return {
     shouldSpeak: true,
