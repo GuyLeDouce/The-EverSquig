@@ -85,6 +85,11 @@ Matching is case-insensitive: standalone `gm` or `good` + whitespace + `morning`
 anywhere in the message, including punctuation, Markdown and emojis. Adjacent
 letters (including Unicode letters), digits or underscores prevent a match.
 Bots, InSquignito itself and webhooks are ignored before activity processing.
+All capitalization variants work, including `GM`, `Gm`, `gm`, `gM` and mixed-case
+`Good Morning`. During the event, stickers `1458788269088313355` and
+`1509562739947737188` also count as GM, even without message text. They use the
+same response pool, probability and shared cooldowns; combining text and stickers
+does not create extra replies. Sticker recognition is limited to the event dates.
 
 `src/insquignito/trickOrTreatGm.js` holds all reminder text, the channel URL,
 date constants and event cooldown settings. No new environment variables or
