@@ -1,3 +1,5 @@
+const { TRICK_OR_TREAT_GM_STICKER_IDS, isTrickOrTreatGmActive } = require('./trickOrTreatGm');
+
 function shouldIgnoreMessage(message, botId) {
   return !!(message.author.bot || message.webhookId || (botId && message.author.id === botId));
 }
@@ -68,6 +70,7 @@ function classifyMessage(input = {}) {
   if (direct) triggers.add('direct_mention');
   if (input.isReplyToBot) triggers.add('reply_to_bot');
   if (/(?<![\p{L}\p{N}_])(?:gm|good\s+morning)(?![\p{L}\p{N}_])/iu.test(content)) triggers.add('gm');
+  if (isTrickOrTreatGmActive(now) && input.stickerIds?.some((id) => TRICK_OR_TREAT_GM_STICKER_IDS.includes(id))) triggers.add('gm');
   if (/\bgn\b|good night|goodnight/.test(t)) triggers.add('gn');
   if (/\bfloor\b|floor price|fp\b/.test(t)) triggers.add('floor');
   if (/\bsweep|swept|sweeping\b/.test(t)) triggers.add('sweep');

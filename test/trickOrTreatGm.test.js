@@ -51,11 +51,48 @@ function delivery(ctx = context()) {
   };
 }
 
-for (const content of ['GM', 'gm', 'Gm', 'Good Morning', 'GOOD MORNING', 'good morning everyone', 'GM everyone', 'GM ugly fkrs', 'Good morning!', 'Good morning everyone ☕️', '☕️GM!!!', '**GM**', 'hey, gm everyone', 'good   morning']) {
+for (const content of ['GM', 'gm', 'Gm', 'gM', 'GoOd MoRnInG', 'Good Morning', 'GOOD MORNING', 'good morning everyone', 'GM everyone', 'GM ugly fkrs', 'Good morning!', 'Good morning everyone ☕️', '☕️GM!!!', '**GM**', 'hey, gm everyone', 'good   morning']) {
   test(`GM matching: ${content}`, () => {
     assert.equal(classifyMessage({ content, config }).primary, 'gm');
   });
 }
+
+for (const stickerId of ['1458788269088313355', '1509562739947737188']) {
+  test(`sticker-only ${stickerId} uses the same GM pool and shared cooldowns`, async () => {
+    const classification = classifyMessage({ content: '', stickerIds: [stickerId], now: october, config });
+    assert.equal(classification.primary, 'gm');
+    const args = delivery(context({ content: '', classification }));
+    assert.deepEqual(args.action, decideInSquignitoAction(context()));
+    assert.equal(await speak(args), true);
+    args.action = decideInSquignitoAction(context({ state: args.state }));
+    assert.equal(await speak(args), false);
+    assert.equal(args.calls.length, 1);
+  });
+}
+
+test('both stickers plus GM still produce only one greeting trigger', () => {
+  const result = classifyMessage({ content: 'gM ☕️', stickerIds: ['1458788269088313355', '1509562739947737188'], now: october, config });
+  assert.equal(result.triggers.filter((trigger) => trigger === 'gm').length, 1);
+});
+
+test('unrelated stickers and sticker IDs pasted as text are not GM greetings', () => {
+  for (const input of [{ stickerIds: ['123'] }, { content: '1458788269088313355 1509562739947737188' }]) {
+    assert.equal(classifyMessage({ ...input, now: october, config }).triggers.includes('gm'), false);
+  }
+});
+
+test('sticker detection respects October boundaries and higher-priority behavior', () => {
+  const stickerIds = ['1458788269088313355'];
+  for (const now of [Date.parse(TRICK_OR_TREAT_GM_START_DATE) - 1, Date.parse(TRICK_OR_TREAT_GM_END_DATE)]) {
+    assert.equal(classifyMessage({ stickerIds, now, config }).triggers.includes('gm'), false);
+  }
+  for (const now of [Date.parse(TRICK_OR_TREAT_GM_START_DATE), Date.parse(TRICK_OR_TREAT_GM_END_DATE) - 1]) {
+    assert.equal(classifyMessage({ stickerIds, now, config }).primary, 'gm');
+  }
+  assert.equal(classifyMessage({ stickerIds, mentionsBot: true, now: october, config }).primary, 'direct');
+  assert.equal(classifyMessage({ stickerIds, content: 'my seed phrase', now: october, config }).primary, 'moderation');
+  assert.equal(classifyMessage({ stickerIds: [...stickerIds, 'dog'], now: october, config: { ...config, uglyDogStickerId: 'dog' } }).primary, 'dogPanic');
+});
 
 for (const content of ['segment', 'dogma', 'sigma', 'pragmatic', 'gmorning', 'gm123', '_gm_', 'égm', 'good mornings', 'notgood morning', 'hello everyone']) {
   test(`does not mistake a substring for a greeting: ${content}`, () => {
