@@ -88,33 +88,29 @@ Bots, InSquignito itself and webhooks are ignored before activity processing.
 All capitalization variants work, including `GM`, `Gm`, `gm`, `gM` and mixed-case
 `Good Morning`. During the event, stickers `1458788269088313355` and
 `1509562739947737188` also count as GM, even without message text. They use the
-same response pool, probability and shared cooldowns; combining text and stickers
+same response pool and guaranteed selection; combining text and stickers
 does not create extra replies. Sticker recognition is limited to the event dates.
 
 `src/insquignito/trickOrTreatGm.js` holds all reminder text, the channel URL,
-date constants and event cooldown settings. No new environment variables or
+date constants and sticker IDs. No new environment variables or
 dependencies are required. `TRICK_OR_TREAT_GM_END_DATE` is the exclusive end:
 October 31, 2026 at 00:00 Toronto time (`2026-10-31T04:00:00Z`). The repository
 had no timezone convention; Toronto is UTC-04:00 for this event. Both action
 selection and the send gate check the date on each message; no timer, restart,
 manual toggle or redeploy is needed to expire it. It does not recur next year.
 
-Reminders keep the existing GM probability (35% at normal intensity, 17.5% low,
-50.75% chaos) but use event-specific limits in the existing cooldown module:
-2 minutes globally, 5 minutes since any bot speech in the channel, 30 minutes
-per user across channels, and at least 2 human messages since bot speech.
-These replace the much longer ambient/category gates for reminders only.
+Every ordinary matching GM greeting selects a reminder (100% chance at all
+intensities). They have no global, channel, per-user, category or minimum-human-
+message cooldown, and an in-flight send does not block other GM replies.
 Quiet mode, silent mood and channel restrictions still apply. A reminder is a
-Discord reply without pinging the author. Blocked/skipped reminders do not
-fall back to a second GM response.
+Discord reply without pinging the author. Randomness chooses the reminder text
+only; it never skips an eligible October GM reply.
 
 Successful sends reuse existing response history and JSON state persistence;
-the last event response is excluded even when all pool entries are in history.
-Event timestamps do not advance the ambient global timer or direct-user timer.
-Channel speech history still updates normally. An in-flight reservation prevents
-concurrent messages from passing the event gate before Discord responds; failed
-sends release the reservation without consuming a cooldown. As with the existing
-JSON state store, this assumes one running bot process and persistent state storage.
+the last event response is excluded from subsequent selection even when all pool
+entries are in history. Event responses do not advance the ambient global timer
+or direct-user timer. Channel speech history still updates normally. Cooldowns
+for other features and normal GM behavior outside the event remain unchanged.
 
 ## Question Prompts
 
