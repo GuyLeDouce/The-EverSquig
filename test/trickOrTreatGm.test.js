@@ -123,19 +123,32 @@ test('Toronto October boundaries are inclusive through October 30 and never recu
   assert.equal(isTrickOrTreatGmActive(Date.parse('2026-10-31T03:00:00Z')), true);
 });
 
-test('existing probability and intensity still control event frequency', () => {
-  assert.equal(decideInSquignitoAction(context({ random: () => 0.34 })).mode, TRICK_OR_TREAT_GM_MODE);
-  assert.equal(decideInSquignitoAction(context({ random: () => 0.35 })).shouldSpeak, false);
-  const low = context({ random: () => 0.2 });
-  low.state.global.intensity = 'low';
-  assert.equal(decideInSquignitoAction(low).shouldSpeak, false);
+test('every ordinary GM text or supported sticker replies at every intensity and random roll', () => {
+  for (const intensity of ['low', 'normal', 'chaos']) {
+    for (const roll of [0, 0.35, 0.7, 0.999999]) {
+      for (const input of [{ content: 'gM' }, { content: 'GoOd MoRnInG ☕️' }, { stickerIds: ['1458788269088313355'] }, { stickerIds: ['1509562739947737188'] }]) {
+        const ctx = context({ classification: classifyMessage({ ...input, config, now: october }), random: () => roll });
+        ctx.state.global.intensity = intensity;
+        const action = decideInSquignitoAction(ctx);
+        assert.equal(action.shouldSpeak, true);
+        assert.equal(action.mode, TRICK_OR_TREAT_GM_MODE);
+        assert.ok(responses.includes(action.responseText));
+      }
+    }
+  }
+});
+
+test('non-event GM and other ambient categories retain probability skipping', () => {
+  const after = context({ now: Date.parse(TRICK_OR_TREAT_GM_END_DATE), random: () => 0.99 });
+  assert.equal(decideInSquignitoAction(after).reason, 'probability_skip');
+  const portal = context({ classification: classifyMessage({ content: 'portal', config }), random: () => 0.99 });
+  assert.equal(decideInSquignitoAction(portal).reason, 'probability_skip');
 });
 
 test('random selection can reach every reminder and excludes last event even with exhausted history', () => {
   const selected = new Set();
   for (let i = 0; i < responses.length; i++) {
-    let call = 0;
-    const action = decideInSquignitoAction(context({ random: () => call++ === 0 ? 0 : (i + 0.5) / responses.length }));
+    const action = decideInSquignitoAction(context({ random: () => (i + 0.5) / responses.length }));
     selected.add(action.responseText);
   }
   assert.deepEqual(selected, new Set(responses));

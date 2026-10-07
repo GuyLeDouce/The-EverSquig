@@ -88,7 +88,7 @@ Bots, InSquignito itself and webhooks are ignored before activity processing.
 All capitalization variants work, including `GM`, `Gm`, `gm`, `gM` and mixed-case
 `Good Morning`. During the event, stickers `1458788269088313355` and
 `1509562739947737188` also count as GM, even without message text. They use the
-same response pool and probability; combining text and stickers
+same response pool and guaranteed selection; combining text and stickers
 does not create extra replies. Sticker recognition is limited to the event dates.
 
 `src/insquignito/trickOrTreatGm.js` holds all reminder text, the channel URL,
@@ -99,12 +99,12 @@ had no timezone convention; Toronto is UTC-04:00 for this event. Both action
 selection and the send gate check the date on each message; no timer, restart,
 manual toggle or redeploy is needed to expire it. It does not recur next year.
 
-Reminders keep the existing GM probability (35% at normal intensity, 17.5% low,
-50.75% chaos). They have no global, channel, per-user, category or minimum-human-
+Every ordinary matching GM greeting selects a reminder (100% chance at all
+intensities). They have no global, channel, per-user, category or minimum-human-
 message cooldown, and an in-flight send does not block other GM replies.
 Quiet mode, silent mood and channel restrictions still apply. A reminder is a
-Discord reply without pinging the author. Probability-skipped reminders do not
-fall back to a second GM response.
+Discord reply without pinging the author. Randomness chooses the reminder text
+only; it never skips an eligible October GM reply.
 
 Successful sends reuse existing response history and JSON state persistence;
 the last event response is excluded from subsequent selection even when all pool

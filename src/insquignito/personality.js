@@ -122,10 +122,6 @@ function decideInSquignitoAction(context) {
     return { shouldSpeak: true, mode: 'direct', category, mood: category === 'knownAnswer' ? 'helpful_weird' : mood, responseText, reason: 'direct_path', cooldownKey: `direct:${context.userId}` };
   }
 
-  if (!ambientAllowedByProbability(context, random)) {
-    return { shouldSpeak: false, mode: 'silent', category: classification.primary, mood, responseText: '', reason: 'probability_skip', cooldownKey: classification.primary };
-  }
-
   const category = classification.primary;
   if (category === 'gm' && isTrickOrTreatGmActive(context.now)) {
     const pool = responses.filter((text) => text !== context.state.global.trickOrTreatGmLastResponse);
@@ -139,6 +135,10 @@ function decideInSquignitoAction(context) {
       cooldownKey: TRICK_OR_TREAT_GM_MODE
     };
   }
+  if (!ambientAllowedByProbability(context, random)) {
+    return { shouldSpeak: false, mode: 'silent', category: classification.primary, mood, responseText: '', reason: 'probability_skip', cooldownKey: classification.primary };
+  }
+
   const responseText = selectFromPool(pools[category] || pools.portal, history, vars, random);
   return {
     shouldSpeak: true,
