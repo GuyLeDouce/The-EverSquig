@@ -1,5 +1,5 @@
 const { getOpening } = require('./responseLibrary');
-const { settings, isTrickOrTreatGmActive, TRICK_OR_TREAT_GM_MODE } = require('./trickOrTreatGm');
+const { isTrickOrTreatGmActive, TRICK_OR_TREAT_GM_MODE } = require('./trickOrTreatGm');
 
 function isQuietModeActive(state, now = Date.now()) {
   return !!(state.global.quietUntilTs && now < state.global.quietUntilTs);
@@ -30,10 +30,6 @@ function canSpeak({ mode, category, channel, channelState, userState, state, con
   if (mode === TRICK_OR_TREAT_GM_MODE) {
     if (!isTrickOrTreatGmActive(now)) return { ok: false, reason: 'event_inactive' };
     if (isQuietModeActive(state, now)) return { ok: false, reason: 'quiet_mode' };
-    if (!enoughHumanMessages(channelState, settings.minHumanMessagesAfterBot)) return { ok: false, reason: 'not_enough_human_messages' };
-    if (now - (state.global.categoryLastTs?.[TRICK_OR_TREAT_GM_MODE] || 0) < settings.globalMs) return { ok: false, reason: 'event_global_cooldown' };
-    if (now - (channelState.lastBotSpeakTs || 0) < settings.channelMs) return { ok: false, reason: 'channel_cooldown' };
-    if (now - (userState.lastTrickOrTreatGmTs || 0) < settings.userMs) return { ok: false, reason: 'event_user_cooldown' };
     return { ok: true, reason: 'ok' };
   }
   if (mode === 'ambient' || mode === 'prompt') {
@@ -61,7 +57,6 @@ function recordResponse({ text, mode, category, channelState, userState, state, 
   state.global.recentOpenings = [...(state.global.recentOpenings || []), opening].slice(-40);
   if (category) state.global.categoryLastTs[category] = now;
   if (mode === TRICK_OR_TREAT_GM_MODE) {
-    userState.lastTrickOrTreatGmTs = now;
     state.global.trickOrTreatGmLastResponse = text;
   }
   if (mode === 'direct') userState.lastDirectTs = now;

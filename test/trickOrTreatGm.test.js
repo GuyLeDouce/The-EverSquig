@@ -2,12 +2,12 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { classifyMessage, shouldIgnoreMessage } = require('../src/insquignito/triggerClassifier');
 const { decideInSquignitoAction } = require('../src/insquignito/personality');
-const { canSpeak, recordResponse, updateActivity } = require('../src/insquignito/cooldowns');
+const { canSpeak, recordResponse } = require('../src/insquignito/cooldowns');
 const { speak } = require('../src/insquignito/speaker');
 const { pools } = require('../src/insquignito/responseLibrary');
 const { mergeState } = require('../src/stateStore');
 const {
-  responses, settings, isTrickOrTreatGmActive, TRICK_OR_TREAT_GM_MODE,
+  responses, isTrickOrTreatGmActive, TRICK_OR_TREAT_GM_MODE,
   TRICK_OR_TREAT_GM_START_DATE, TRICK_OR_TREAT_GM_END_DATE, TRICK_OR_TREAT_CHANNEL_URL
 } = require('../src/insquignito/trickOrTreatGm');
 
@@ -58,15 +58,15 @@ for (const content of ['GM', 'gm', 'Gm', 'gM', 'GoOd MoRnInG', 'Good Morning', '
 }
 
 for (const stickerId of ['1458788269088313355', '1509562739947737188']) {
-  test(`sticker-only ${stickerId} uses the same GM pool and shared cooldowns`, async () => {
+  test(`sticker-only ${stickerId} uses the same GM pool without a cooldown`, async () => {
     const classification = classifyMessage({ content: '', stickerIds: [stickerId], now: october, config });
     assert.equal(classification.primary, 'gm');
     const args = delivery(context({ content: '', classification }));
     assert.deepEqual(args.action, decideInSquignitoAction(context()));
     assert.equal(await speak(args), true);
     args.action = decideInSquignitoAction(context({ state: args.state }));
-    assert.equal(await speak(args), false);
-    assert.equal(args.calls.length, 1);
+    assert.equal(await speak(args), true);
+    assert.equal(args.calls.length, 2);
   });
 }
 
@@ -186,26 +186,21 @@ test('event reuses quiet and channel gates without 6–12 hour ambient/category 
   assert.equal(gate(ctx).ok, false);
 });
 
-test('global, channel, user and human-message cooldowns work at their exact boundaries', () => {
+test('event ignores global, channel, user, category and message-count cooldown state', () => {
   const ctx = context();
+  ctx.state.global.ambientNextEligibleTs = october + 43200000;
+  ctx.state.global.categoryLastTs.gm = october;
+  ctx.state.global.categoryLastTs[TRICK_OR_TREAT_GM_MODE] = october;
+  ctx.channelState.lastBotSpeakTs = october;
+  ctx.channelState.humanMessagesSinceBot = 0;
+  ctx.userState.lastTrickOrTreatGmTs = october;
+  ctx.userState.lastDirectTs = october;
+  assert.equal(gate(ctx).ok, true);
   recordResponse({ ...ctx, text: responses[0], mode: TRICK_OR_TREAT_GM_MODE, category: TRICK_OR_TREAT_GM_MODE });
-  const other = { channelState: { humanMessagesSinceBot: 99 }, userState: {} };
-  assert.equal(gate(ctx, { ...other, now: october + settings.globalMs - 1 }).reason, 'event_global_cooldown');
-  assert.equal(gate(ctx, { ...other, now: october + settings.globalMs }).ok, true);
-  ctx.channelState.humanMessagesSinceBot = 99;
-  assert.equal(gate(ctx, { userState: {}, now: october + settings.channelMs - 1 }).reason, 'channel_cooldown');
-  assert.equal(gate(ctx, { userState: {}, now: october + settings.channelMs }).ok, true);
-  assert.equal(gate(ctx, { now: october + settings.userMs - 1 }).reason, 'event_user_cooldown');
-  assert.equal(gate(ctx, { now: october + settings.userMs }).ok, true);
-  ctx.channelState.humanMessagesSinceBot = 1;
-  assert.equal(gate(ctx, { now: october + settings.userMs }).reason, 'not_enough_human_messages');
-  updateActivity(ctx.channelState, ctx.userState, 'u1', october + settings.userMs, config);
-  assert.equal(gate(ctx, { now: october + settings.userMs }).ok, true);
-  assert.equal(ctx.state.global.ambientNextEligibleTs, 0);
-  assert.equal(ctx.userState.lastDirectTs, undefined);
-  const restored = mergeState(JSON.parse(JSON.stringify({ ...ctx.state, users: { u1: ctx.userState } })));
-  assert.equal(restored.users.u1.lastTrickOrTreatGmTs, october);
-  assert.equal(restored.global.trickOrTreatGmLastResponse, responses[0]);
+  assert.equal(gate(ctx).ok, true);
+  assert.equal(ctx.state.global.trickOrTreatGmLastResponse, responses[0]);
+  assert.equal(ctx.state.global.ambientNextEligibleTs, october + 43200000);
+  assert.equal(ctx.userState.lastDirectTs, october);
 });
 
 test('message guard and speaker ignore bots, self even without bot flag, and webhooks', async () => {
@@ -219,27 +214,26 @@ test('message guard and speaker ignore bots, self even without bot flag, and web
   assert.equal(shouldIgnoreMessage(delivery().message, 'bot'), false);
 });
 
-test('single reply, no ping, cooldown persistence and no recursive trigger', async () => {
+test('repeated GM replies have no cooldown, no ping and no recursive trigger', async () => {
   const args = delivery();
   assert.equal(await speak(args), true);
   assert.deepEqual(args.calls, [{ content: args.action.responseText, allowedMentions: { parse: [], repliedUser: false } }]);
-  assert.equal(args.userState.lastTrickOrTreatGmTs, october);
-  assert.equal(await speak(args), false);
-  assert.equal(args.calls.length, 1);
+  assert.equal(args.state.global.trickOrTreatGmLastResponse, args.action.responseText);
+  assert.equal(await speak(args), true);
+  assert.equal(args.calls.length, 2);
   assert.equal(shouldIgnoreMessage({ author: { id: 'bot', bot: true }, content: args.calls[0].content }, 'bot'), true);
 });
 
-test('simultaneous GM wave cannot send two reminders; failed send releases reservation', async () => {
+test('a pending GM send does not suppress another GM reply', async () => {
   const args = delivery();
   let finish;
   args.message.reply = () => new Promise((resolve) => { finish = resolve; });
   const first = speak(args);
   const other = delivery(context({ state: args.state }));
-  assert.equal(await speak(other), false);
-  finish(null);
-  assert.equal(await first, false);
-  assert.equal(args.userState.lastTrickOrTreatGmTs, undefined);
   assert.equal(await speak(other), true);
+  finish({});
+  assert.equal(await first, true);
+  assert.equal(other.calls.length, 1);
 });
 
 test('Discord rejection records no cooldown and allows retry', async () => {

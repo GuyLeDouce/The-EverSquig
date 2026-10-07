@@ -5,13 +5,6 @@ const TRICK_OR_TREAT_CHANNEL_URL = 'https://discord.com/channels/129058420468980
 const TRICK_OR_TREAT_GM_MODE = 'trickOrTreatGm';
 const TRICK_OR_TREAT_GM_STICKER_IDS = ['1458788269088313355', '1509562739947737188'];
 
-const settings = {
-  globalMs: 2 * 60 * 1000,
-  channelMs: 5 * 60 * 1000,
-  userMs: 30 * 60 * 1000,
-  minHumanMessagesAfterBot: 2
-};
-
 const responses = [
   `GM ☕️ Looking extra Ugly this morning 👀\n\nI left you a TREAT 🍬`,
   `GM Ugly Fkrs ☕️\n\nI filled the candy bowl again 🍬 Try not to eat it all at once.`,
@@ -55,7 +48,6 @@ module.exports = {
   TRICK_OR_TREAT_CHANNEL_URL,
   TRICK_OR_TREAT_GM_MODE,
   TRICK_OR_TREAT_GM_STICKER_IDS,
-  settings,
   responses,
   isTrickOrTreatGmActive
 };
